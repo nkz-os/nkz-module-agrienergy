@@ -1,0 +1,32 @@
+# =============================================================================
+# AgriEnergy API Ingress — frontend host
+# =============================================================================
+# Exposes /api/agrienergy on nekazari.robotika.cloud via the api-gateway.
+# The gateway handles JWT validation, tenant extraction, and proxying.
+# =============================================================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agrienergy-api-frontend-host
+  namespace: nekazari
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - nekazari.robotika.cloud
+      secretName: nekazari-tls
+  rules:
+    - host: nekazari.robotika.cloud
+      http:
+        paths:
+          - path: /api/agrienergy
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway-service
+                port:
+                  number: 5000

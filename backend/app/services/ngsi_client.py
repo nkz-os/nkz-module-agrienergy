@@ -5,99 +5,95 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+
 class ContextBrokerClient:
     """
-    Cliente para interactuar con FIWARE Orion-LD (Context Broker).
+    Client for NGSI-LD queries against Orion-LD (directly, no entity-manager middleman).
+    Uses CONTEXT_BROKER_URL env var (e.g. http://orion-ld-service:1026/ngsi-ld/v1).
     """
+
     def __init__(self):
         self.settings = get_settings()
-        # En la arquitectura NKZ, el entity-manager o el api-gateway expone las rutas.
-        # Directo a Orion suele ser http://orion-ld:1026/ngsi-ld/v1
-        # Por seguridad y multitenancy usamos el entity-manager interno.
-        self.base_url = "http://entity-manager-service:5000/api/entities"
+        # Orion-LD direct URL (set via CONTEXT_BROKER_URL env var in K8s)
+        self.base_url = (self.settings.context_broker_url or "http://orion-ld-service:1026/ngsi-ld/v1").rstrip("/")
+
+    def _headers(self, tenant_id: str, content_type: str | None = None) -> dict:
+        """Build headers for Orion-LD multi-tenant queries."""
+        h: dict[str, str] = {
+            "NGSILD-Tenant": tenant_id,
+            "Accept": "application/json",
+        }
+        if content_type:
+            h["Content-Type"] = content_type
+        return h
 
     async def get_entities_by_type(self, tenant_id: str, entity_type: str) -> List[Dict[str, Any]]:
-        headers = {
-            "Fiware-Service": tenant_id
-        }
         try:
-            # Query the manager
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.base_url}?type={entity_type}",
-                    headers=headers
+                    f"{self.base_url}/entities",
+                    params={"type": entity_type, "limit": 500},
+                    headers=self._headers(tenant_id),
                 )
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
+                return data if isinstance(data, list) else []
         except Exception as e:
-            logger.error(f"Error fetching entities from Orion-LD: {e}")
+            logger.error("Error fetching entities type=%s: %s", entity_type, e)
             return []
 
     async def get_entity(self, tenant_id: str, entity_id: str) -> Dict[str, Any] | None:
         """Fetch a single entity by id. Returns None if not found or on error."""
         import urllib.parse
-        headers = {"Fiware-Service": tenant_id}
         try:
             encoded_id = urllib.parse.quote(entity_id, safe="")
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.base_url}/{encoded_id}",
-                    headers=headers,
+                    f"{self.base_url}/entities/{encoded_id}",
+                    headers=self._headers(tenant_id),
                 )
                 if response.status_code == 404:
                     return None
                 response.raise_for_status()
                 return response.json()
         except Exception as e:
-            logger.error(f"Error fetching entity {entity_id}: {e}")
+            logger.error("Error fetching entity %s: %s", entity_id, e)
             return None
 
     async def update_entity_attribute(self, tenant_id: str, entity_id: str, attr_name: str, value: Any) -> bool:
-        headers = {
-            "Fiware-Service": tenant_id,
-            "Content-Type": "application/json",
-            # Importante: Como se definió en CLAUDE.md, application/json requiere el Link header en FIWARE
-            # o bien pasarlo por el entity-manager que ya solventa eso. Asumiendo entity-manager.
-        }
-        
+        import urllib.parse
         payload = {
             attr_name: {
                 "type": "Property",
-                "value": value
+                "value": value,
             }
         }
-        
         try:
-            async with httpx.AsyncClient() as client:
-                # NGSI-LD partial attribute update format
+            encoded_id = urllib.parse.quote(entity_id, safe="")
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/{entity_id}/attrs",
+                    f"{self.base_url}/entities/{encoded_id}/attrs",
                     json=payload,
-                    headers=headers
+                    headers=self._headers(tenant_id, "application/json"),
                 )
                 response.raise_for_status()
                 return True
         except Exception as e:
-            logger.error(f"Error updating entity {entity_id}: {e}")
+            logger.error("Error updating entity %s attr %s: %s", entity_id, attr_name, e)
             return False
 
     async def create_entity(self, tenant_id: str, entity: dict) -> bool:
         """
         Create an NGSI-LD entity in Orion (POST /ngsi-ld/v1/entities).
-        Requires context_broker_url to be set. Returns True on 201/200.
+        Returns True on 201/200.
         """
-        base = (self.settings.context_broker_url or "").rstrip("/")
-        if not base:
-            logger.warning("context_broker_url not set; cannot create entity")
-            return False
-        url = f"{base}/entities"
-        headers = {
-            "Content-Type": "application/ld+json",
-            "Fiware-Service": tenant_id,
-        }
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(url, json=entity, headers=headers)
+                response = await client.post(
+                    f"{self.base_url}/entities",
+                    json=entity,
+                    headers=self._headers(tenant_id, "application/json"),
+                )
                 if response.status_code in (200, 201):
                     return True
                 logger.error(
@@ -107,5 +103,5 @@ class ContextBrokerClient:
                 )
                 return False
         except Exception as e:
-            logger.error(f"Error creating entity: {e}")
+            logger.error("Error creating entity: %s", e)
             return False

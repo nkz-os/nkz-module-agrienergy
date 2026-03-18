@@ -197,19 +197,18 @@ def require_roles(*required_roles: str):
 
 def get_tenant_id(
     fiware_service: Optional[str] = Header(None, alias="fiware-service"),
+    x_tenant_id: Optional[str] = Header(None, alias="x-tenant-id"),
     user: TokenPayload = Depends(get_current_user),
 ) -> str:
     """
-    Get tenant ID from FIWARE-Service header or user token.
-    
-    Usage:
-        @router.get("/data")
-        async def get_data(tenant_id: str = Depends(get_tenant_id)):
-            return {"tenant": tenant_id}
+    Get tenant ID from headers or user token.
+
+    Priority: Fiware-Service > X-Tenant-ID (from api-gateway) > Token > Default
     """
-    # Priority: Header > Token > Default
     if fiware_service:
         return fiware_service
+    if x_tenant_id:
+        return x_tenant_id
     if user.tenant_id:
         return user.tenant_id
     return "default"

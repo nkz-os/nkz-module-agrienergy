@@ -537,10 +537,11 @@ async def process_ngsild_notification(
             tracker_id = tracker.get("id")
             parcel_id = tracker.get("refAgriParcel", {}).get("object", "urn:ngsi-ld:AgriParcel:Default")
             
-            # Parametría del panel (valores por defecto seguros si falta config)
-            p_width = float(tracker.get("width", {}).get("value", 2.0))
-            p_length = float(tracker.get("length", {}).get("value", 4.0))
-            p_cap = float(tracker.get("capacityW", {}).get("value", 500.0))
+            # Panel parameters — SDM-aligned names with legacy fallback
+            _dim = tracker.get("panelDimension", {}).get("value", {})
+            p_width = float(_dim.get("width", 0) or tracker.get("width", {}).get("value", 2.0))
+            p_length = float(_dim.get("length", 0) or tracker.get("length", {}).get("value", 4.0))
+            p_cap = float(tracker.get("NominalPower", {}).get("value", 0) or tracker.get("capacityW", {}).get("value", 500.0))
             p_tilt = float(tracker.get("tilt", {}).get("value", 0.0))
             p_azimuth = float(tracker.get("azimuth", {}).get("value", 180.0))
             lat = float(tracker.get("location", {}).get("value", {}).get("coordinates", [43.0, -2.0])[1])

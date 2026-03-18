@@ -45,10 +45,10 @@ spec:
               value: "/api/agrienergy"
             # CORS — explicit origin whitelist (never *)
             - name: CORS_ORIGINS
-              value: '["https://your-frontend-domain"]'
+              value: '["https://nekazari.robotika.cloud"]'
             # Keycloak Configuration
             - name: KEYCLOAK_URL
-              value: "https://auth.your-domain/auth"  # Override per environment
+              value: "https://auth.robotika.cloud/auth"
             - name: KEYCLOAK_REALM
               value: "nekazari"
             - name: JWT_AUDIENCE
