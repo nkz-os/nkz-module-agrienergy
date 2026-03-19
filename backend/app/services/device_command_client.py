@@ -36,12 +36,13 @@ class DeviceCommandClient:
     ) -> bool:
         """
         Publish agrienergy.tracker.set command to device via MQTT.
-        entity-manager expects X-Tenant-ID or Fiware-Service for tenant context.
+        entity-manager expects X-Tenant-ID or NGSILD-Tenant for tenant context.
         """
         url = f"{self.base_url}/api/devices/{device_id}/commands"
         headers = {
             "Content-Type": "application/json",
-            "Fiware-Service": tenant_id,
+            "NGSILD-Tenant": tenant_id,
+            "X-Tenant-ID": tenant_id,
         }
         payload: Dict[str, Any] = {
             "command_type": "agrienergy.tracker.set",

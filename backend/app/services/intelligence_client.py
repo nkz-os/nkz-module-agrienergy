@@ -26,7 +26,7 @@ class IntelligenceClient:
         current_soil_moisture: float,
     ) -> float:
         """Legacy: returns stress_index only. Prefer evaluate_status for full scalar bundle."""
-        headers = {"Fiware-Service": tenant_id}
+        headers = {"NGSILD-Tenant": tenant_id, "X-Tenant-ID": tenant_id}
         payload = {
             "parcel_id": parcel_id,
             "soil_moisture": current_soil_moisture,
@@ -59,7 +59,7 @@ class IntelligenceClient:
         POST /api/intelligence/evaluate_status. Returns scalar bundle for context["biology"].
         On timeout or 5xx returns {} so caller can inject safe defaults (fail-safe).
         """
-        headers = {"Fiware-Service": tenant_id, "Content-Type": "application/json"}
+        headers = {"NGSILD-Tenant": tenant_id, "X-Tenant-ID": tenant_id, "Content-Type": "application/json"}
         payload = {
             "tracker_id": tracker_id,
             "parcel_id": parcel_id,

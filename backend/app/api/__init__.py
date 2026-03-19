@@ -152,7 +152,7 @@ def _entity_name(entity: dict) -> str:
         return str(name["value"])
     if isinstance(name, str):
         return name
-    return entity.get("id", "—")[-32:]  # fallback: last part of id
+    return entity.get("id", "")
 
 
 # =============================================================================
@@ -208,7 +208,7 @@ async def get_tracker_status(
 # Signal sources (for UI dropdowns)
 # =============================================================================
 
-DEFAULT_SIGNAL_ENTITY_TYPES = ("WeatherObserved", "AgriSensor", "Device")
+DEFAULT_SIGNAL_ENTITY_TYPES = ("WeatherObserved", "AgriSensor")
 
 
 @router.get("/signal-sources", response_model=SignalSourcesResponse)
@@ -216,7 +216,7 @@ async def get_signal_sources(
     tenant_id: str = Depends(get_tenant_id),
     entity_types: str = Query(
         default=",".join(DEFAULT_SIGNAL_ENTITY_TYPES),
-        description="Comma-separated NGSI-LD entity types (e.g. WeatherObserved,AgriSensor,Device)",
+        description="Comma-separated NGSI-LD entity types (e.g. WeatherObserved,AgriSensor)",
     ),
 ):
     """

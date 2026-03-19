@@ -8,7 +8,7 @@ Compatible with Nekazari platform authentication.
 import httpx
 from typing import Optional
 from functools import lru_cache
-from fastapi import HTTPException, Depends, Header, status
+from fastapi import HTTPException, Depends, Header, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, jwk, JWTError
 from jose.exceptions import JWKError
@@ -18,6 +18,20 @@ from app.config import get_settings, Settings
 
 # Security scheme
 security = HTTPBearer(auto_error=False)
+
+
+def _extract_token(request: Request, credentials: Optional[HTTPAuthorizationCredentials]) -> str:
+    """Extract JWT from Bearer header or nkz_token cookie (fallback for browser requests)."""
+    if credentials:
+        return credentials.credentials
+    cookie_token = request.cookies.get("nkz_token")
+    if cookie_token:
+        return cookie_token
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Missing authorization token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 class JWKSClient:
@@ -93,25 +107,15 @@ class TokenPayload:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     settings: Settings = Depends(get_settings),
 ) -> TokenPayload:
     """
     Validate JWT token and return user payload.
-    
-    Usage:
-        @router.get("/protected")
-        async def protected_route(user: TokenPayload = Depends(get_current_user)):
-            return {"user": user.email}
+    Supports Bearer header and nkz_token cookie (browser requests).
     """
-    if not credentials:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authorization token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    token = credentials.credentials
+    token = _extract_token(request, credentials)
     
     try:
         # Decode header to get key ID
@@ -196,19 +200,18 @@ def require_roles(*required_roles: str):
 
 
 def get_tenant_id(
-    fiware_service: Optional[str] = Header(None, alias="fiware-service"),
     x_tenant_id: Optional[str] = Header(None, alias="x-tenant-id"),
+    ngsild_tenant: Optional[str] = Header(None, alias="ngsild-tenant"),
     user: TokenPayload = Depends(get_current_user),
 ) -> str:
-    """
-    Get tenant ID from headers or user token.
+    """Extract tenant ID from request.
 
-    Priority: Fiware-Service > X-Tenant-ID (from api-gateway) > Token > Default
+    Priority: X-Tenant-ID header (from gateway) > NGSILD-Tenant header > JWT tenant_id claim.
     """
-    if fiware_service:
-        return fiware_service
     if x_tenant_id:
         return x_tenant_id
+    if ngsild_tenant:
+        return ngsild_tenant
     if user.tenant_id:
         return user.tenant_id
     return "default"
