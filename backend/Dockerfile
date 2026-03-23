@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Stage 2: Production image
 FROM python:3.11-slim
+LABEL org.opencontainers.image.source=https://github.com/nkz-os/nkz-module-agrienergy
 
 WORKDIR /app
 
