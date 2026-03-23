@@ -6,7 +6,7 @@
   "description": "AgriEnergy Orchestrator — description of what this module does",
   "short_description": "Short description for marketplace listing",
   "icon": "puzzle",
-  "author": { "name": "NKZ Team", "email": "", "organization": "k8-benetis" },
+  "author": { "name": "NKZ Team", "email": "", "organization": "nkz-os" },
   "category": "analytics",
   "module_type": "ADDON_FREE",
   "required_plan_type": "basic",

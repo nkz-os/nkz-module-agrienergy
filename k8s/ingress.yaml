@@ -1,8 +1,8 @@
 # =============================================================================
 # AgriEnergy API Ingress — frontend host
 # =============================================================================
-# Exposes /api/agrienergy on nekazari.robotika.cloud via the api-gateway.
-# The gateway handles JWT validation, tenant extraction, and proxying.
+# Exposes /api/agrienergy on nekazari.robotika.cloud directly to the backend.
+# Backend handles JWT validation (Bearer + cookie) and tenant extraction.
 # =============================================================================
 
 apiVersion: networking.k8s.io/v1
@@ -27,6 +27,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api-gateway-service
+                name: agrienergy-api-service
                 port:
-                  number: 5000
+                  number: 8000

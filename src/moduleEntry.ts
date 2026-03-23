@@ -15,8 +15,8 @@ const MODULE_ID = 'agrienergy';
 if (typeof window !== 'undefined' && window.__NKZ__) {
   // Register module translations into the default namespace (deep merge)
   if (i18n && i18n.addResourceBundle) {
-    i18n.addResourceBundle('es', 'translation', esTranslations, true, true);
-    i18n.addResourceBundle('en', 'translation', enTranslations, true, true);
+    i18n.addResourceBundle('es', 'common', esTranslations, true, true);
+    i18n.addResourceBundle('en', 'common', enTranslations, true, true);
   }
 
   window.__NKZ__.register({

@@ -5,7 +5,7 @@
 ## 1. Clone and rename
 
 ```bash
-git clone https://github.com/k8-benetis/nkz-module-template.git my-module
+git clone https://github.com/nkz-os/nkz-module-template.git my-module
 cd my-module
 ```
 
@@ -18,7 +18,7 @@ Find-and-replace across all files:
 | `agrienergy` | Your module ID (lowercase, hyphens) | `soil-sensor` |
 | `AgriEnergy Orchestrator` | Human-readable name | `Soil Sensor` |
 | `/agrienergy` | URL path | `/soil-sensor` |
-| `k8-benetis` | GitHub org | `acme-corp` |
+| `nkz-os` | GitHub org | `acme-corp` |
 | `NKZ Team` | Author name | `Jane Smith` |
 
 ## 3. Install dependencies
@@ -66,8 +66,8 @@ psql -U postgres -d nekazari -f k8s/registration.sql
 ## 9. Deploy backend (if any)
 
 ```bash
-docker build -t ghcr.io/k8-benetis/agrienergy-backend:v1.0.0 ./backend
-docker push ghcr.io/k8-benetis/agrienergy-backend:v1.0.0
+docker build -t ghcr.io/nkz-os/agrienergy-backend:v1.0.0 ./backend
+docker push ghcr.io/nkz-os/agrienergy-backend:v1.0.0
 kubectl apply -f k8s/backend-deployment.yaml -n nekazari
 ```
 

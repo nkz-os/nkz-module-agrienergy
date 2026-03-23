@@ -37,7 +37,7 @@ Ensure ingress routes `/api/agrienergy` to `agrienergy-api-service:8000` before 
 ## Quick start
 
 ```bash
-git clone https://github.com/k8-benetis/nkz-module-agrienergy.git
+git clone https://github.com/nkz-os/nkz-module-agrienergy.git
 cd nkz-module-agrienergy
 npm install
 ```
@@ -109,8 +109,8 @@ Or insert manually and update `remote_entry_url = '/modules/agrienergy/nkz-modul
 ### 3. Deploy backend (if your module has one)
 
 ```bash
-docker build -t ghcr.io/k8-benetis/agrienergy-backend:v1.0.0 ./backend
-docker push ghcr.io/k8-benetis/agrienergy-backend:v1.0.0
+docker build -t ghcr.io/nkz-os/agrienergy-backend:v1.0.0 ./backend
+docker push ghcr.io/nkz-os/agrienergy-backend:v1.0.0
 kubectl apply -f k8s/backend-deployment.yaml -n nekazari
 ```
 
@@ -162,7 +162,7 @@ If your module collects timeseries data, the DataHub module can visualise it in 
 - **Data in platform TimescaleDB**: nothing needed — DataHub finds it automatically.
 - **Data in an external system**: implement a `GET /api/timeseries/entities/{id}/data` endpoint returning **Apache Arrow IPC** (`float64` epoch seconds, `float64` value), declare `source` in the NGSI-LD entity attribute, and set `TIMESERIES_ADAPTER_<SOURCE>_URL` in the DataHub BFF.
 
-Full contract: [ADAPTER_SPEC.md](https://github.com/k8-benetis/nkz-module-data-hub/blob/main/ADAPTER_SPEC.md)
+Full contract: [ADAPTER_SPEC.md](https://github.com/nkz-os/nkz-module-data-hub/blob/main/ADAPTER_SPEC.md)
 
 ---
 
