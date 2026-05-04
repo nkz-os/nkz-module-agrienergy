@@ -21,7 +21,7 @@ interface ExampleSlotProps {
   className?: string;
 }
 
-export const ExampleSlot: React.FC<ExampleSlotProps> = ({ className }) => {
+export const ExampleSlot: React.FC<ExampleSlotProps> = ({ className: _className }) => {
   const { selectedEntityId } = useViewer();
   const { isAuthenticated, user } = useAuth();
   const [loading, setLoading] = useState(false);
