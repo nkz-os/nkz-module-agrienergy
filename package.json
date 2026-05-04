@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@nekazari/viewer-kit": "^0.1.0-alpha",
     "lucide-react": "^0.424.0"
   },
   "devDependencies": {

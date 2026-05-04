@@ -37,9 +37,33 @@
     "entity-tree": [],
     "dashboard-widget": []
   },
+  "accent": {
+    "base": "#F97316",
+    "soft": "#FFF7ED",
+    "strong": "#C2410C"
+  },
+  "surfaces": {
+    "web": {
+      "slots": {
+        "context-panel": [
+          {
+            "id": "agrienergy-context",
+            "moduleId": "agrienergy",
+            "component": "AgriEnergySandbox",
+            "priority": 10
+          }
+        ],
+        "map-layer": [],
+        "layer-toggle": [],
+        "bottom-panel": [],
+        "entity-tree": [],
+        "dashboard-widget": []
+      }
+    }
+  },
   "metadata": {
     "icon": "🔧",
-    "color": "#3B82F6",
+    "color": "#F97316",
     "features": [],
     "screenshots": []
   }

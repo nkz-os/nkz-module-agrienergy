@@ -3,7 +3,6 @@
  * In production the host loads nkz-module.js (IIFE) directly; this file is not bundled.
  */
 import React from 'react';
-import './index.css';
 
 const App: React.FC = () => {
   return (

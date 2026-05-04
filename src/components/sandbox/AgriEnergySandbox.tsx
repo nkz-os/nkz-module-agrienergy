@@ -6,6 +6,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button } from '@nekazari/ui-kit';
+import { SlotShell } from '@nekazari/viewer-kit';
 import { useTranslation, useViewerOptional } from '@nekazari/sdk';
 import { ChevronDown, ChevronRight, Zap, FlaskConical } from 'lucide-react';
 import { ParkOverview } from '../park/ParkOverview';
@@ -13,6 +14,8 @@ import { TrackerDashboard } from '../tracker/TrackerDashboard';
 import { ManualControls } from '../tracker/ManualControls';
 import { AlgorithmPanel } from '../tracker/AlgorithmPanel';
 import { ConfigureSignals } from './ConfigureSignals';
+
+const agrienergyAccent = { base: '#F97316', soft: '#FFF7ED', strong: '#C2410C' };
 
 const STATUS_POLL_INTERVAL_MS = 10_000;
 
@@ -162,48 +165,43 @@ export const AgriEnergySandbox: React.FC = () => {
   // No entity selected — show park overview
   if (!selectedEntityId) {
     return (
-      <div className="nkz-agrienergy space-y-3 p-1">
+      <SlotShell moduleId="agrienergy" accent={agrienergyAccent}>
         <ParkOverview />
-      </div>
+      </SlotShell>
     );
   }
 
   // Entity selected but no data yet
   if (!status && !statusError) {
     return (
-      <div className="nkz-agrienergy p-1">
-        <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-          <div className="p-4 text-center">
-            <div className="animate-pulse flex flex-col items-center gap-2">
-              <Zap size={20} className="text-gray-300 dark:text-gray-600" />
-              <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.loading')}</p>
-            </div>
+      <SlotShell moduleId="agrienergy" accent={agrienergyAccent}>
+        <div className="p-4 text-center">
+          <div className="animate-pulse flex flex-col items-center gap-2">
+            <Zap size={20} className="text-gray-300 dark:text-gray-600" />
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('common.loading')}</p>
           </div>
-        </Card>
-      </div>
+        </div>
+      </SlotShell>
     );
   }
 
   // Entity selected but error / not found
   if (!status && statusError) {
     return (
-      <div className="nkz-agrienergy space-y-3 p-1">
-        <Card className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-          <div className="p-4 text-center">
-            <Zap size={20} className="text-amber-400 mx-auto mb-2" />
-            <p className="text-xs text-amber-600 dark:text-amber-400">{t('agrienergy.panel.noData')}</p>
-            <p className="text-[10px] text-gray-400 mt-1">{selectedEntityId}</p>
-          </div>
-        </Card>
-        {/* Still show park overview below */}
+      <SlotShell moduleId="agrienergy" accent={agrienergyAccent}>
+        <div className="p-4 text-center">
+          <Zap size={20} className="text-amber-400 mx-auto mb-2" />
+          <p className="text-xs text-amber-600 dark:text-amber-400">{t('agrienergy.panel.noData')}</p>
+          <p className="text-[10px] text-gray-400 mt-1">{selectedEntityId}</p>
+        </div>
         <ParkOverview />
-      </div>
+      </SlotShell>
     );
   }
 
   // Entity selected with data
   return (
-    <div className="nkz-agrienergy space-y-3 p-1">
+    <SlotShell moduleId="agrienergy" accent={agrienergyAccent}>
       {/* 1. TrackerDashboard (always expanded) */}
       {status && <TrackerDashboard status={status} />}
 
@@ -310,6 +308,6 @@ export const AgriEnergySandbox: React.FC = () => {
           )}
         </div>
       </CollapsibleSection>
-    </div>
+    </SlotShell>
   );
 };
