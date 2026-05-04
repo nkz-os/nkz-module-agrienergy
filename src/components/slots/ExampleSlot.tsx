@@ -3,13 +3,19 @@
  *
  * Slot components render inside host-provided containers.
  * - Access viewer context via useViewer() and useAuth() from @nekazari/sdk
- * - React, SDK and UI-Kit are externalized — do NOT import them from node_modules
- *   in production; they come from the host via window globals.
+ * - React, SDK and UI-Kit are externalized — they come from the host via window globals.
  * - Keep panels responsive (300–600px wide).
+ * - Use SlotShell or SlotShellCompact from @nekazari/viewer-kit for consistent styling.
+ * - Use ui-kit components (Button, Badge, Spinner, etc.) and design token classes
+ *   (text-nkz-*, bg-nkz-*) for themed appearance.
  */
+
 import React, { useState } from 'react';
 import { useViewer, useAuth } from '@nekazari/sdk';
+import { SlotShellCompact } from '@nekazari/viewer-kit';
 import { AlertCircle, RefreshCw } from 'lucide-react';
+
+const agrienergyAccent = { base: '#F97316', soft: '#FFF7ED', strong: '#C2410C' };
 
 interface ExampleSlotProps {
   className?: string;
@@ -22,41 +28,45 @@ export const ExampleSlot: React.FC<ExampleSlotProps> = ({ className }) => {
 
   if (!isAuthenticated) {
     return (
-      <div className={`flex items-center gap-2 text-amber-600 p-4 ${className ?? ''}`}>
-        <AlertCircle className="w-4 h-4 flex-shrink-0" />
-        <span className="text-sm">Authentication required.</span>
-      </div>
+      <SlotShellCompact moduleId="agrienergy" accent={agrienergyAccent}>
+        <div className="flex items-center gap-nkz-inline text-nkz-warning p-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <span className="text-nkz-sm text-nkz-text-muted">Authentication required.</span>
+        </div>
+      </SlotShellCompact>
     );
   }
 
   return (
-    <div className={`p-4 space-y-3 ${className ?? ''}`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-800">AgriEnergy Orchestrator</h3>
-        <button
-          onClick={() => setLoading(l => !l)}
-          className="p-1 rounded hover:bg-slate-100 text-slate-500"
-          aria-label="Refresh"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
-
-      <div className="text-xs text-slate-500 space-y-1 bg-slate-50 rounded p-2">
-        <div className="flex justify-between gap-2">
-          <span>Entity:</span>
-          <span className="font-mono text-slate-700 truncate">{selectedEntityId ?? '—'}</span>
+    <SlotShellCompact moduleId="agrienergy" accent={agrienergyAccent}>
+      <div className="space-y-nkz-stack">
+        <div className="flex items-center justify-between">
+          <h3 className="text-nkz-sm font-semibold text-nkz-text-primary">AgriEnergy Orchestrator</h3>
+          <button
+            onClick={() => setLoading(l => !l)}
+            className="p-1 rounded hover:bg-nkz-bg-soft text-nkz-text-muted"
+            aria-label="Refresh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
-        <div className="flex justify-between gap-2">
-          <span>User:</span>
-          <span className="text-slate-700 truncate">{user?.email ?? '—'}</span>
-        </div>
-      </div>
 
-      <p className="text-xs text-slate-400 italic">
-        Replace this component with your module's functionality.
-      </p>
-    </div>
+        <div className="text-nkz-xs text-nkz-text-muted space-y-nkz-stack bg-nkz-bg-soft rounded p-2">
+          <div className="flex justify-between gap-nkz-inline">
+            <span>Entity:</span>
+            <span className="font-mono text-nkz-text-secondary truncate">{selectedEntityId ?? '—'}</span>
+          </div>
+          <div className="flex justify-between gap-nkz-inline">
+            <span>User:</span>
+            <span className="text-nkz-text-secondary truncate">{user?.email ?? '—'}</span>
+          </div>
+        </div>
+
+        <p className="text-nkz-xs text-nkz-text-muted italic">
+          Replace this component with your module functionality.
+        </p>
+      </div>
+    </SlotShellCompact>
   );
 };
 

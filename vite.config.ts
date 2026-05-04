@@ -7,6 +7,10 @@ const MODULE_ID = 'agrienergy';
 export default defineConfig(nkzModulePreset({
   moduleId: MODULE_ID,
   entry: 'src/moduleEntry.ts',
+  additionalExternals: {
+    '@nekazari/design-tokens': '__NKZ_DESIGN_TOKENS__',
+    '@nekazari/viewer-kit': '__NKZ_VIEWER_KIT__',
+  },
   viteConfig: {
     resolve: {
       alias: { '@': path.resolve(__dirname, './src') },
