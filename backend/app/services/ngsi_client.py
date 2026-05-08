@@ -18,13 +18,29 @@ class ContextBrokerClient:
         self.base_url = (self.settings.context_broker_url or "http://orion-ld-service:1026/ngsi-ld/v1").rstrip("/")
 
     def _headers(self, tenant_id: str, content_type: str | None = None) -> dict:
-        """Build headers for Orion-LD multi-tenant queries."""
+        """Build headers for Orion-LD multi-tenant queries.
+
+        When Content-Type is application/json (not ld+json), @context MUST
+        come via Link header per ETSI NGSI-LD spec.
+        """
         h: dict[str, str] = {
             "NGSILD-Tenant": tenant_id,
-            "Accept": "application/json",
+            "Accept": "application/ld+json",
         }
         if content_type:
             h["Content-Type"] = content_type
+
+        # If Content-Type is application/json (not ld+json), @context MUST
+        # come via Link header. If Content-Type is application/ld+json,
+        # the entity body already carries @context and we MUST NOT add Link.
+        if content_type == "application/json":
+            ctx_url = self.settings.context_url
+            if ctx_url:
+                h["Link"] = (
+                    f'<{ctx_url}>; '
+                    f'rel="http://www.w3.org/ns/json-ld#context"; '
+                    f'type="application/ld+json"'
+                )
         return h
 
     async def get_entities_by_type(self, tenant_id: str, entity_type: str) -> List[Dict[str, Any]]:
@@ -92,7 +108,7 @@ class ContextBrokerClient:
                 response = await client.post(
                     f"{self.base_url}/entities",
                     json=entity,
-                    headers=self._headers(tenant_id, "application/json"),
+                    headers=self._headers(tenant_id, "application/ld+json" if "@context" in entity else "application/json"),
                 )
                 if response.status_code in (200, 201):
                     return True

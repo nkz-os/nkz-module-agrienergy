@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Context Broker (Orion-LD) for creating entities (e.g. AgriSolarPark). If empty, create_entity is no-op.
     context_broker_url: str = ""  # e.g. http://orion-ld:1026/ngsi-ld/v1
 
+    # NGSI-LD @context URL (set via CONTEXT_URL env var in K8s). Used in Link header
+    # when sending application/json to Orion-LD. ETSI NGSI-LD mandatory.
+    context_url: str = ""  # e.g. https://nkz.robotika.cloud/ngsi-ld-context.json
+
     # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
     agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
 
