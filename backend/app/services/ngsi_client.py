@@ -1,9 +1,37 @@
 import httpx
 import logging
+import re
+import os
 from typing import Dict, Any, List
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _make_headers(tenant_id: str) -> dict:
+    """Build canonical NGSI-LD headers with tenant normalization.
+
+    Applies FIWARE multi-tenant conventions: lowercase, underscores,
+    alphanumeric-only normalized tenant value for both NGSILD-Tenant
+    and Fiware-Service headers.
+    """
+    n = tenant_id.lower().strip().replace('-', '_').replace(' ', '_')
+    n = re.sub(r'[^a-z0-9_]', '', n)
+    n = n.strip('_') or tenant_id
+    headers = {
+        "NGSILD-Tenant": n,
+        "Fiware-Service": n,
+        "Fiware-ServicePath": "/",
+        "Accept": "application/ld+json",
+    }
+    ctx = os.getenv("CONTEXT_URL", "")
+    if ctx:
+        headers["Link"] = (
+            f'<{ctx}>; '
+            f'rel="http://www.w3.org/ns/json-ld#context"; '
+            f'type="application/ld+json"'
+        )
+    return headers
 
 
 class ContextBrokerClient:
@@ -20,27 +48,13 @@ class ContextBrokerClient:
     def _headers(self, tenant_id: str, content_type: str | None = None) -> dict:
         """Build headers for Orion-LD multi-tenant queries.
 
-        When Content-Type is application/json (not ld+json), @context MUST
-        come via Link header per ETSI NGSI-LD spec.
+        Delegates to module-level _make_headers for canonical tenant
+        normalization and FIWARE multi-tenant headers, then overrides
+        Content-Type when supplied.
         """
-        h: dict[str, str] = {
-            "NGSILD-Tenant": tenant_id,
-            "Accept": "application/ld+json",
-        }
+        h = _make_headers(tenant_id)
         if content_type:
             h["Content-Type"] = content_type
-
-        # If Content-Type is application/json (not ld+json), @context MUST
-        # come via Link header. If Content-Type is application/ld+json,
-        # the entity body already carries @context and we MUST NOT add Link.
-        if content_type == "application/json":
-            ctx_url = self.settings.context_url
-            if ctx_url:
-                h["Link"] = (
-                    f'<{ctx_url}>; '
-                    f'rel="http://www.w3.org/ns/json-ld#context"; '
-                    f'type="application/ld+json"'
-                )
         return h
 
     async def get_entities_by_type(self, tenant_id: str, entity_type: str) -> List[Dict[str, Any]]:
