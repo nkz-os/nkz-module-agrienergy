@@ -4,7 +4,10 @@
   "description": "AgriEnergy Orchestrator — Nekazari Platform Module",
   "license": "AGPL-3.0",
   "type": "module",
-  "main": "./src/moduleEntry.ts",
+  "main": "./src/Module.tsx",
+  "nkz": {
+    "moduleId": "agrienergy"
+  },
   "scripts": {
     "dev": "vite --port 5003",
     "build:module": "vite build",
@@ -22,7 +25,8 @@
     "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
-    "@nekazari/module-builder": "^1.0.0",
+    "@nekazari/module-builder": "^2.0.0",
+    "@nekazari/module-kit": "^0.6.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
