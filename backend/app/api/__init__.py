@@ -627,6 +627,16 @@ async def process_ngsild_notification(
                 lat = float(_loc.get("coordinates", [43.0, -2.0])[1])
                 lon = float(_loc.get("coordinates", [43.0, -2.0])[0])
 
+            # 2.5 Fetch linked AgriParcel for terrain data (slope/aspect)
+            parcel_slope = 0.0
+            parcel_aspect = 180.0
+            try:
+                parcel = await ngsi_client.get_entity(tenant_id, parcel_id)
+                parcel_slope = float(parcel.get("slope", {}).get("value", 0.0))
+                parcel_aspect = float(parcel.get("aspect", {}).get("value", 180.0))
+            except Exception:
+                pass  # parcel not found or attributes missing → use defaults
+
             # 3. Build context for algorithm: signalMapping -> weather, tracker, sensors
             context = {"weather": {"ghi": ghi, "dni": dni}, "tracker": {"tilt": p_tilt, "azimuth": p_azimuth}}
             mapping_list = _parse_signal_mapping(tracker)
@@ -657,6 +667,8 @@ async def process_ngsild_notification(
                 solar_elevation=pv_current["solar_elevation"],
                 solar_azimuth=pv_current["solar_azimuth"],
                 clearance_height=p_height,
+                terrain_slope=parcel_slope,
+                terrain_aspect=parcel_aspect,
             )
             shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
 
@@ -693,6 +705,8 @@ async def process_ngsild_notification(
                 solar_elevation=pv_res["solar_elevation"],
                 solar_azimuth=pv_res["solar_azimuth"],
                 clearance_height=p_height,
+                terrain_slope=parcel_slope,
+                terrain_aspect=parcel_aspect,
             )
             stress_index = (context.get("biology") or {}).get("stress_index") or 0.0
 
