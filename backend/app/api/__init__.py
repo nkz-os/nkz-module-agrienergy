@@ -445,9 +445,8 @@ async def update_tracker_signal_mapping(
 async def simulate(request: SimulationRequest):
     """
     Run a one-shot PV + shadow simulation for a tracker/parcel and target tilt.
-    Used by the frontend Sandbox and by external callers.
+    Supports legacy single-panel (tracker) and multi-panel array (panel_array).
     """
-    tracker = request.tracker
     parcel = request.parcel
     telemetry = request.telemetry
     target_tilt = request.target_tilt
@@ -457,6 +456,47 @@ async def simulate(request: SimulationRequest):
     except (ValueError, TypeError):
         sim_time = datetime.utcnow()
 
+    shadow_engine = ShadowEngine()
+
+    if request.panel_array is not None:
+        # Multi-panel array mode
+        arr = request.panel_array
+        if not arr.positions:
+            return SimulationResponse(expected_power_w=0.0, shadow_area_m2=0.0, shadow_polygon_2d=[])
+
+        ref = arr.positions[0]
+        pv_engine = PVEngine(ref.lat, ref.lon)
+        total_area_m2 = arr.panel_width * arr.panel_length * len(arr.positions)
+        total_capacity_w = 500.0 * len(arr.positions)  # default per-panel capacity
+
+        pv_res = pv_engine.calculate_expected_power(
+            sim_time,
+            PVSpec(tilt=target_tilt, azimuth=telemetry.actual_azimuth, capacity_w=total_capacity_w, module_area_m2=total_area_m2),
+            telemetry.ghi, telemetry.dni, telemetry.dhi,
+        )
+
+        positions = [(p.lon, p.lat) for p in arr.positions]
+        shadow_res = shadow_engine.calculate_array_shadow(
+            panel_positions=positions,
+            panel_width=arr.panel_width,
+            panel_length=arr.panel_length,
+            panel_tilt=target_tilt,
+            panel_azimuth=telemetry.actual_azimuth,
+            solar_elevation=pv_res["solar_elevation"],
+            solar_azimuth=pv_res["solar_azimuth"],
+            clearance_height=arr.clearance_height,
+            terrain_slope=parcel.slope,
+            terrain_aspect=parcel.aspect,
+        )
+        polygon_list = list(shadow_res["polygon"]) if shadow_res["polygon"] else []
+        return SimulationResponse(
+            expected_power_w=round(pv_res["expected_power_w"], 2),
+            shadow_area_m2=round(shadow_res["area_m2"], 4),
+            shadow_polygon_2d=polygon_list,
+        )
+
+    # Legacy single-panel mode
+    tracker = request.tracker
     pv_engine = PVEngine(tracker.lat, tracker.lon)
     spec = PVSpec(
         tilt=target_tilt,
@@ -465,13 +505,8 @@ async def simulate(request: SimulationRequest):
         module_area_m2=tracker.panel_width * tracker.panel_length,
     )
     pv_res = pv_engine.calculate_expected_power(
-        sim_time,
-        spec,
-        telemetry.ghi,
-        telemetry.dni,
-        telemetry.dhi,
+        sim_time, spec, telemetry.ghi, telemetry.dni, telemetry.dhi,
     )
-    shadow_engine = ShadowEngine()
     shadow_res = shadow_engine.calculate_shadow_polygon(
         panel_width=tracker.panel_width,
         panel_length=tracker.panel_length,
@@ -539,13 +574,31 @@ async def process_ngsild_notification(
             
             # Panel parameters — SDM-aligned names with legacy fallback
             _dim = tracker.get("panelDimension", {}).get("value", {})
-            p_width = float(_dim.get("width", 0) or tracker.get("width", {}).get("value", 2.0))
-            p_length = float(_dim.get("length", 0) or tracker.get("length", {}).get("value", 4.0))
+            p_width = float(
+                tracker.get("panelWidth", {}).get("value")
+                or _dim.get("width")
+                or tracker.get("width", {}).get("value", 2.0)
+            )
+            p_length = float(
+                tracker.get("panelLength", {}).get("value")
+                or _dim.get("length")
+                or tracker.get("length", {}).get("value", 4.0)
+            )
+            p_height = float(
+                tracker.get("panelHeight", {}).get("value")
+                or tracker.get("clearanceHeight", {}).get("value", 2.0)
+            )
             p_cap = float(tracker.get("NominalPower", {}).get("value", 0) or tracker.get("capacityW", {}).get("value", 500.0))
             p_tilt = float(tracker.get("tilt", {}).get("value", 0.0))
             p_azimuth = float(tracker.get("azimuth", {}).get("value", 180.0))
-            lat = float(tracker.get("location", {}).get("value", {}).get("coordinates", [43.0, -2.0])[1])
-            lon = float(tracker.get("location", {}).get("value", {}).get("coordinates", [43.0, -2.0])[0])
+            # Handle both Point and MultiPoint location
+            _loc = tracker.get("location", {}).get("value", {})
+            if _loc.get("type") == "MultiPoint" and _loc.get("coordinates"):
+                coords = _loc["coordinates"][0]
+                lat, lon = coords[1], coords[0]
+            else:
+                lat = float(_loc.get("coordinates", [43.0, -2.0])[1])
+                lon = float(_loc.get("coordinates", [43.0, -2.0])[0])
 
             # 3. Build context for algorithm: signalMapping -> weather, tracker, sensors
             context = {"weather": {"ghi": ghi, "dni": dni}, "tracker": {"tilt": p_tilt, "azimuth": p_azimuth}}
@@ -576,6 +629,7 @@ async def process_ngsild_notification(
                 panel_tilt=p_tilt, panel_azimuth=p_azimuth,
                 solar_elevation=pv_current["solar_elevation"],
                 solar_azimuth=pv_current["solar_azimuth"],
+                clearance_height=p_height,
             )
             shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
 
@@ -611,6 +665,7 @@ async def process_ngsild_notification(
                 panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
                 solar_elevation=pv_res["solar_elevation"],
                 solar_azimuth=pv_res["solar_azimuth"],
+                clearance_height=p_height,
             )
             stress_index = (context.get("biology") or {}).get("stress_index") or 0.0
 

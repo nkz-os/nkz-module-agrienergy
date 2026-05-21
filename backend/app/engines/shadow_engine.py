@@ -118,3 +118,63 @@ class ShadowEngine:
             "area_m2": poly.area,
             "polygon": list(poly.exterior.coords)
         }
+
+    def calculate_array_shadow(self,
+                               panel_positions: list,  # [(lon, lat), ...] from MultiPoint
+                               panel_width: float,
+                               panel_length: float,
+                               panel_tilt: float,
+                               panel_azimuth: float,
+                               solar_elevation: float,
+                               solar_azimuth: float,
+                               clearance_height: float = 2.0,
+                               terrain_slope: float = 0.0,
+                               terrain_aspect: float = 180.0) -> dict:
+        """
+        Calcula la sombra agregada de un array de paneles.
+        Cada panel se proyecta independientemente; se devuelve la unión.
+        """
+        from shapely.ops import unary_union
+        from shapely.affinity import translate as shapely_translate
+
+        if not panel_positions:
+            return {"area_m2": 0.0, "polygon": [], "individual_polygons": []}
+
+        ref_lon = panel_positions[0][0]
+        ref_lat = panel_positions[0][1]
+        lat_rad = np.radians(ref_lat)
+        meters_per_deg_lat = 111320.0
+        meters_per_deg_lon = 111320.0 * np.cos(lat_rad)
+
+        individual_polygons = []
+        for lon, lat in panel_positions:
+            dx_m = (lon - ref_lon) * meters_per_deg_lon
+            dy_m = (lat - ref_lat) * meters_per_deg_lat
+
+            res = self.calculate_shadow_polygon(
+                panel_width=panel_width,
+                panel_length=panel_length,
+                panel_tilt=panel_tilt,
+                panel_azimuth=panel_azimuth,
+                solar_elevation=solar_elevation,
+                solar_azimuth=solar_azimuth,
+                clearance_height=clearance_height,
+                terrain_slope=terrain_slope,
+                terrain_aspect=terrain_aspect
+            )
+
+            if res["polygon"] and len(res["polygon"]) >= 3:
+                poly = Polygon(res["polygon"])
+                poly_translated = shapely_translate(poly, xoff=dx_m, yoff=dy_m)
+                individual_polygons.append(poly_translated)
+
+        if not individual_polygons:
+            return {"area_m2": 0.0, "polygon": [], "individual_polygons": []}
+
+        merged = unary_union(individual_polygons)
+
+        return {
+            "area_m2": merged.area,
+            "polygon": list(merged.exterior.coords) if hasattr(merged, 'exterior') else [],
+            "individual_polygons": [list(p.exterior.coords) for p in individual_polygons]
+        }

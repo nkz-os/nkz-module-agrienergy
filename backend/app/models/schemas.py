@@ -11,7 +11,22 @@ class AgriParcelSpec(BaseModel):
     aspect: float = Field(default=180.0, description="Orientación en grados (180=Sur)")
 
 
+class PanelSpec(BaseModel):
+    """Position of a single panel within an array."""
+    lat: float
+    lon: float
+
+
+class PanelArraySpec(BaseModel):
+    """Spec for a full array of panels (multi-panel installation)."""
+    positions: List[PanelSpec]
+    panel_width: float = 2.0
+    panel_length: float = 4.0
+    clearance_height: float = 2.0
+
+
 class TrackerSpec(BaseModel):
+    """Legacy single-panel tracker spec — kept for backward compatibility."""
     id: str
     panel_width: float
     panel_length: float
@@ -33,7 +48,8 @@ class TelemetryInput(BaseModel):
 
 
 class SimulationRequest(BaseModel):
-    tracker: TrackerSpec
+    tracker: Optional[TrackerSpec] = None          # legacy single-panel
+    panel_array: Optional[PanelArraySpec] = None   # multi-panel array
     parcel: AgriParcelSpec
     telemetry: TelemetryInput
     target_tilt: float
