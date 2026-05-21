@@ -26,6 +26,7 @@ class DeviceCommandClient:
             "entity_manager_url",
             "http://entity-manager-service:5000",
         ).rstrip("/")
+        self._api_key = self.settings.module_management_key or ""
 
     async def send_tracker_command(
         self,
@@ -44,6 +45,8 @@ class DeviceCommandClient:
             "NGSILD-Tenant": tenant_id,
             "X-Tenant-ID": tenant_id,
         }
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
         payload: Dict[str, Any] = {
             "command_type": "agrienergy.tracker.set",
             "payload": {
