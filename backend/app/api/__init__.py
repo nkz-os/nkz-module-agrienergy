@@ -536,7 +536,24 @@ async def process_ngsild_notification(
 ):
     """
     Webhook para recibir notificaciones (suscripciones) de Orion-LD.
-    Se dispara cuando cambian entidades observadas como WeatherObserved o AgriEnergyTracker.
+    Se dispara cuando cambian entidades: WeatherObserved, AgriEnergyTracker, PhotovoltaicInstallation.
+    Implementa el lazo cerrado: sensor -> algoritmo -> actuador (MQTT vía DeviceCommandClient).
+
+    DeviceProfile para actuador físico:
+      - Crear un DeviceProfile con entity_type = PhotovoltaicInstallation
+      - Mapear los atributos del dispositivo: tilt, azimuth, targetTilt, targetAzimuth
+      - El DeviceCommandClient enviará comandos MQTT tipo "agrienergy.tracker.set"
+        con payload {targetTilt, targetAzimuth} al tópico configurado en el perfil.
+      - El tracker físico debe escuchar ese tópico y actuar sobre los motores.
+      - Para publicar telemetría (tilt/azimuth actual), usar IoT Agent JSON → Orion-LD.
+
+    Subscription Orion-LD requerida:
+      La suscripción debe cubrir los tipos: WeatherObserved, AgriEnergyTracker,
+      y PhotovoltaicInstallation. Si no existe, crearla vía POST /ngsi-ld/v1/subscriptions
+      con un payload {"type": "Subscription", "entities": [{"type": "WeatherObserved"},
+      {"type": "AgriEnergyTracker"}, {"type": "PhotovoltaicInstallation"}],
+      "notification": {"endpoint": {"uri": "http://agrienergy-backend:8000/api/agrienergy/notify"}}}.
+      Observación: el endpoint debe ser accesible desde Orion-LD (nombre de servicio K8s).
     """
     logger.info(f"Received NGSI-LD notification for subscription {payload.subscriptionId}")
     
@@ -561,9 +578,13 @@ async def process_ngsild_notification(
                  ghi = float(entity["solarRadiation"].get("value", ghi))
                  
             # Buscamos los trackers afectados y recalculamos (Lazo cerrado Reactivo)
-            trackers = await ngsi_client.get_entities_by_type(tenant_id, "AgriEnergyTracker")
-        elif entity_type == "AgriEnergyTracker":
-            trackers = [entity] # El propio entity es el tracker
+            trackers = []
+            tracker_results = await ngsi_client.get_entities_by_type(tenant_id, "AgriEnergyTracker")
+            trackers.extend(tracker_results)
+            pv_results = await ngsi_client.get_entities_by_type(tenant_id, "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation")
+            trackers.extend(pv_results)
+        elif entity_type in ("AgriEnergyTracker", "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"):
+            trackers = [entity] # El propio entity es el tracker/PV installation
         else:
             continue
             
@@ -589,8 +610,14 @@ async def process_ngsild_notification(
                 or tracker.get("clearanceHeight", {}).get("value", 2.0)
             )
             p_cap = float(tracker.get("NominalPower", {}).get("value", 0) or tracker.get("capacityW", {}).get("value", 500.0))
+            # Orientation: direct attributes first, fall back to modelRotation [heading=azimuth, pitch=-tilt, roll]
             p_tilt = float(tracker.get("tilt", {}).get("value", 0.0))
             p_azimuth = float(tracker.get("azimuth", {}).get("value", 180.0))
+            if not p_tilt and not tracker.get("tilt"):
+                _mr = tracker.get("modelRotation", {}).get("value", [0, 0, 0]) or [0, 0, 0]
+                if isinstance(_mr, list) and len(_mr) >= 2:
+                    p_azimuth = float(_mr[0]) if float(_mr[0]) != 0 or not p_azimuth else p_azimuth
+                    p_tilt = -float(_mr[1])  # pitch = -tilt
             # Handle both Point and MultiPoint location
             _loc = tracker.get("location", {}).get("value", {})
             if _loc.get("type") == "MultiPoint" and _loc.get("coordinates"):
