@@ -478,9 +478,9 @@ async def simulate(request: SimulationRequest):
 
         positions = [(p.lon, p.lat) for p in arr.positions]
 
-        # Query real elevations from DEM (SRTM 30m)
-        elevation_svc = ElevationService()
-        elevations = await elevation_svc.get_elevations(positions)
+        # Query real elevations via platform cascade: LiDAR DTM → eu-elevation → Copernicus
+        elevation_svc = ElevationService(tenant_id="")  # simulate is tenant-agnostic
+        elevations = await elevation_svc.get_elevations(positions, parcel_id=parcel.id)
 
         shadow_res = shadow_engine.calculate_array_shadow(
             panel_positions=positions,
@@ -667,8 +667,8 @@ async def process_ngsild_notification(
             panel_positions: list = []
             if is_multipoint:
                 panel_positions = [(c[0], c[1]) for c in _loc_val["coordinates"]]
-                elevation_svc = ElevationService()
-                elevations = await elevation_svc.get_elevations(panel_positions)
+                elevation_svc = ElevationService(tenant_id=tenant_id)
+                elevations = await elevation_svc.get_elevations(panel_positions, parcel_id=parcel_id)
             else:
                 elevations = None
 
