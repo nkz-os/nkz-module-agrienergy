@@ -129,10 +129,15 @@ class ShadowEngine:
                                solar_azimuth: float,
                                clearance_height: float = 2.0,
                                terrain_slope: float = 0.0,
-                               terrain_aspect: float = 180.0) -> dict:
+                               terrain_aspect: float = 180.0,
+                               elevations: list | None = None) -> dict:
         """
         Calcula la sombra agregada de un array de paneles.
         Cada panel se proyecta independientemente; se devuelve la unión.
+
+        Si se proporciona `elevations` (una elevación en metros por cada posición),
+        se calcula la pendiente local del terreno en cada panel usando su vecino
+        más cercano, en lugar de usar un plano inclinado global.
         """
         from shapely.ops import unary_union
         from shapely.affinity import translate as shapely_translate
@@ -146,10 +151,24 @@ class ShadowEngine:
         meters_per_deg_lat = 111320.0
         meters_per_deg_lon = 111320.0 * np.cos(lat_rad)
 
+        # Precompute local terrain per panel from real elevations
+        n = len(panel_positions)
+        has_elevations = elevations is not None and len(elevations) == n
+
         individual_polygons = []
-        for lon, lat in panel_positions:
+        for idx, (lon, lat) in enumerate(panel_positions):
             dx_m = (lon - ref_lon) * meters_per_deg_lon
             dy_m = (lat - ref_lat) * meters_per_deg_lat
+
+            # Local terrain: use real elevation data if available
+            local_slope = terrain_slope
+            local_aspect = terrain_aspect
+            if has_elevations and elevations is not None:
+                local_slope, local_aspect = self._local_terrain(
+                    idx, panel_positions, elevations,
+                    meters_per_deg_lon, meters_per_deg_lat,
+                    fallback_slope=terrain_slope, fallback_aspect=terrain_aspect
+                )
 
             res = self.calculate_shadow_polygon(
                 panel_width=panel_width,
@@ -159,8 +178,8 @@ class ShadowEngine:
                 solar_elevation=solar_elevation,
                 solar_azimuth=solar_azimuth,
                 clearance_height=clearance_height,
-                terrain_slope=terrain_slope,
-                terrain_aspect=terrain_aspect
+                terrain_slope=local_slope,
+                terrain_aspect=local_aspect
             )
 
             if res["polygon"] and len(res["polygon"]) >= 3:
@@ -178,3 +197,63 @@ class ShadowEngine:
             "polygon": list(merged.exterior.coords) if hasattr(merged, 'exterior') else [],
             "individual_polygons": [list(p.exterior.coords) for p in individual_polygons]
         }
+
+    @staticmethod
+    def _local_terrain(
+        idx: int,
+        positions: list,  # [(lon, lat), ...]
+        elevations: list,  # elevation in meters per position
+        m_per_deg_lon: float,
+        m_per_deg_lat: float,
+        fallback_slope: float = 0.0,
+        fallback_aspect: float = 180.0,
+    ) -> tuple:
+        """
+        Compute local terrain slope/aspect at position idx using its nearest neighbor.
+        Falls back to global values for isolated panels.
+        """
+        n = len(positions)
+        if n < 2:
+            return fallback_slope, fallback_aspect
+
+        my_lon, my_lat = positions[idx]
+        my_elev = elevations[idx]
+
+        # Find nearest neighbor
+        best_dist = float("inf")
+        best_dx = 0.0
+        best_dy = 0.0
+        best_de = 0.0
+        for j in range(n):
+            if j == idx:
+                continue
+            dlon = (positions[j][0] - my_lon) * m_per_deg_lon
+            dlat = (positions[j][1] - my_lat) * m_per_deg_lat
+            dist = np.sqrt(dlon * dlon + dlat * dlat)
+            if dist < best_dist and dist > 0.001:  # avoid self
+                best_dist = dist
+                best_dx = dlon
+                best_dy = dlat
+                best_de = elevations[j] - my_elev
+
+        if best_dist == float("inf") or best_dist < 0.001:
+            return fallback_slope, fallback_aspect
+
+        # Slope = angle of elevation gradient (degrees)
+        local_slope_rad = np.arctan2(abs(best_de), best_dist)
+        local_slope = float(np.degrees(local_slope_rad))
+
+        # Aspect = direction of steepest descent (0=North, 90=East, 180=South)
+        # bearing from current position toward neighbor
+        bearing_rad = np.arctan2(best_dx, best_dy)  # dx→East, dy→North
+        bearing_deg = float(np.degrees(bearing_rad))
+        if bearing_deg < 0:
+            bearing_deg += 360.0
+
+        # Aspect is the direction the slope FACES (downhill)
+        if best_de > 0:
+            local_aspect = bearing_deg  # neighbor is higher → downhill is opposite
+        else:
+            local_aspect = (bearing_deg + 180.0) % 360.0
+
+        return local_slope, local_aspect

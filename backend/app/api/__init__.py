@@ -35,6 +35,7 @@ from app.services.ngsi_client import ContextBrokerClient
 from app.services.intelligence_client import IntelligenceClient
 from app.services.device_command_client import DeviceCommandClient
 from app.engines.algorithm_engine import AlgorithmEngine
+from app.engines.elevation import ElevationService
 
 logger = logging.getLogger(__name__)
 
@@ -476,6 +477,11 @@ async def simulate(request: SimulationRequest):
         )
 
         positions = [(p.lon, p.lat) for p in arr.positions]
+
+        # Query real elevations from DEM (SRTM 30m)
+        elevation_svc = ElevationService()
+        elevations = await elevation_svc.get_elevations(positions)
+
         shadow_res = shadow_engine.calculate_array_shadow(
             panel_positions=positions,
             panel_width=arr.panel_width,
@@ -487,6 +493,7 @@ async def simulate(request: SimulationRequest):
             clearance_height=arr.clearance_height,
             terrain_slope=parcel.slope,
             terrain_aspect=parcel.aspect,
+            elevations=elevations,
         )
         polygon_list = list(shadow_res["polygon"]) if shadow_res["polygon"] else []
         return SimulationResponse(
@@ -654,6 +661,17 @@ async def process_ngsild_notification(
                     dhi = context.get("weather", {}).get("dhi", dhi)
 
             # 4. Current shadow (for Intelligence) and PV solar position
+            # Detect MultiPoint geometry for array shadow with real elevations
+            _loc_val = tracker.get("location", {}).get("value", {})
+            is_multipoint = _loc_val.get("type") == "MultiPoint" and _loc_val.get("coordinates")
+            panel_positions: list = []
+            if is_multipoint:
+                panel_positions = [(c[0], c[1]) for c in _loc_val["coordinates"]]
+                elevation_svc = ElevationService()
+                elevations = await elevation_svc.get_elevations(panel_positions)
+            else:
+                elevations = None
+
             pv_engine = PVEngine(lat, lon)
             sim_time = datetime.utcnow()
             pv_current = pv_engine.calculate_expected_power(
@@ -661,15 +679,28 @@ async def process_ngsild_notification(
                 PVSpec(tilt=p_tilt, azimuth=p_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length),
                 ghi, dni, dhi,
             )
-            shadow_current = shadow_engine.calculate_shadow_polygon(
-                panel_width=p_width, panel_length=p_length,
-                panel_tilt=p_tilt, panel_azimuth=p_azimuth,
-                solar_elevation=pv_current["solar_elevation"],
-                solar_azimuth=pv_current["solar_azimuth"],
-                clearance_height=p_height,
-                terrain_slope=parcel_slope,
-                terrain_aspect=parcel_aspect,
-            )
+            if is_multipoint:
+                shadow_current = shadow_engine.calculate_array_shadow(
+                    panel_positions=panel_positions,
+                    panel_width=p_width, panel_length=p_length,
+                    panel_tilt=p_tilt, panel_azimuth=p_azimuth,
+                    solar_elevation=pv_current["solar_elevation"],
+                    solar_azimuth=pv_current["solar_azimuth"],
+                    clearance_height=p_height,
+                    terrain_slope=parcel_slope,
+                    terrain_aspect=parcel_aspect,
+                    elevations=elevations,
+                )
+            else:
+                shadow_current = shadow_engine.calculate_shadow_polygon(
+                    panel_width=p_width, panel_length=p_length,
+                    panel_tilt=p_tilt, panel_azimuth=p_azimuth,
+                    solar_elevation=pv_current["solar_elevation"],
+                    solar_azimuth=pv_current["solar_azimuth"],
+                    clearance_height=p_height,
+                    terrain_slope=parcel_slope,
+                    terrain_aspect=parcel_aspect,
+                )
             shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
 
             # 5. Call Intelligence evaluate_status; inject biology (fail-safe: empty or stress_index 0)
@@ -699,15 +730,28 @@ async def process_ngsild_notification(
             # 7. Digital twin: PV + shadow for the *new* orientation (logging and consistency)
             spec = PVSpec(tilt=new_target_tilt, azimuth=new_target_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length)
             pv_res = pv_engine.calculate_expected_power(sim_time, spec, ghi, dni, dhi)
-            shadow_res = shadow_engine.calculate_shadow_polygon(
-                panel_width=p_width, panel_length=p_length,
-                panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
-                solar_elevation=pv_res["solar_elevation"],
-                solar_azimuth=pv_res["solar_azimuth"],
-                clearance_height=p_height,
-                terrain_slope=parcel_slope,
-                terrain_aspect=parcel_aspect,
-            )
+            if is_multipoint:
+                shadow_res = shadow_engine.calculate_array_shadow(
+                    panel_positions=panel_positions,
+                    panel_width=p_width, panel_length=p_length,
+                    panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
+                    solar_elevation=pv_res["solar_elevation"],
+                    solar_azimuth=pv_res["solar_azimuth"],
+                    clearance_height=p_height,
+                    terrain_slope=parcel_slope,
+                    terrain_aspect=parcel_aspect,
+                    elevations=elevations,
+                )
+            else:
+                shadow_res = shadow_engine.calculate_shadow_polygon(
+                    panel_width=p_width, panel_length=p_length,
+                    panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
+                    solar_elevation=pv_res["solar_elevation"],
+                    solar_azimuth=pv_res["solar_azimuth"],
+                    clearance_height=p_height,
+                    terrain_slope=parcel_slope,
+                    terrain_aspect=parcel_aspect,
+                )
             stress_index = (context.get("biology") or {}).get("stress_index") or 0.0
 
             logger.info(
