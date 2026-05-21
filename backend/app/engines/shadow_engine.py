@@ -1,5 +1,5 @@
 import numpy as np
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 from shapely.affinity import rotate, translate, scale
 
 class ShadowEngine:
@@ -188,14 +188,29 @@ class ShadowEngine:
                 individual_polygons.append(poly_translated)
 
         if not individual_polygons:
-            return {"area_m2": 0.0, "polygon": [], "individual_polygons": []}
+            return {"area_m2": 0.0, "polygon": [], "individual_polygons": [],
+                    "self_shading": {"shaded_indices": [], "occlusion_fraction": [0.0]*n,
+                                     "total_occluded_area_m2": 0.0}}
 
         merged = unary_union(individual_polygons)
+
+        # Self-shading analysis
+        self_shading = self.compute_self_shading(
+            panel_positions=panel_positions,
+            panel_width=panel_width,
+            panel_length=panel_length,
+            panel_tilt=panel_tilt,
+            panel_azimuth=panel_azimuth,
+            solar_elevation=solar_elevation,
+            solar_azimuth=solar_azimuth,
+            clearance_height=clearance_height,
+        )
 
         return {
             "area_m2": merged.area,
             "polygon": list(merged.exterior.coords) if hasattr(merged, 'exterior') else [],
-            "individual_polygons": [list(p.exterior.coords) for p in individual_polygons]
+            "individual_polygons": [list(p.exterior.coords) for p in individual_polygons],
+            "self_shading": self_shading,
         }
 
     @staticmethod
@@ -257,3 +272,133 @@ class ShadowEngine:
             local_aspect = (bearing_deg + 180.0) % 360.0
 
         return local_slope, local_aspect
+
+    # ── Self-shading between panels ─────────────────────────────────────────
+
+    def compute_self_shading(
+        self,
+        panel_positions: list,  # [(lon, lat), ...]
+        panel_width: float,
+        panel_length: float,
+        panel_tilt: float,
+        panel_azimuth: float,
+        solar_elevation: float,
+        solar_azimuth: float,
+        clearance_height: float = 2.0,
+    ) -> dict:
+        """
+        Detect which panels are shaded by other panels in the same array.
+
+        Returns:
+          - shaded_indices: list of panel indices that receive shade from neighbors
+          - occlusion_fraction: per-panel fraction [0..1] of surface in shadow
+          - total_occluded_area_m2: total panel area occluded by self-shading
+        """
+        n = len(panel_positions)
+        if n < 2 or solar_elevation <= 0:
+            return {
+                "shaded_indices": [],
+                "occlusion_fraction": [0.0] * n,
+                "total_occluded_area_m2": 0.0,
+            }
+
+        # Geographic reference for meter conversion
+        ref_lat = panel_positions[0][1]
+        lat_rad = np.radians(ref_lat)
+        m_per_deg_lon = 111320.0 * np.cos(lat_rad)
+        m_per_deg_lat = 111320.0
+
+        # Precompute panel center positions in meters (relative to ref)
+        centers_m = []
+        ref_lon, ref_lat2 = panel_positions[0]
+        for lon, lat in panel_positions:
+            x = (lon - ref_lon) * m_per_deg_lon
+            y = (lat - ref_lat2) * m_per_deg_lat
+            centers_m.append((x, y))
+
+        # Precompute each panel's 3D footprint (top edge height)
+        # Panel is a rectangle tilted by panel_tilt around its center axis.
+        # Top edge height above ground = clearance_height + panel_width * sin(tilt)
+        tilt_rad = np.radians(panel_tilt)
+        panel_top_z = clearance_height + panel_width * abs(np.sin(tilt_rad))
+        panel_bottom_z = clearance_height
+
+        # Sun ray direction (unit vector pointing TOWARD the sun)
+        el_rad = np.radians(solar_elevation)
+        az_rad = np.radians(180 - solar_azimuth)
+        sun_dir = np.array([
+            np.cos(el_rad) * np.sin(az_rad),   # x (East)
+            np.cos(el_rad) * np.cos(az_rad),   # y (North)
+            np.sin(el_rad),                     # z (Up)
+        ])
+
+        occlusion = [0.0] * n
+        shaded_set: set = set()
+
+        # For each panel i, check if it shades any other panel j
+        for i in range(n):
+            ci_x, ci_y = centers_m[i]
+
+            # Compute panel i's shadow polygon on the ground at origin
+            shadow_i = self.calculate_shadow_polygon(
+                panel_width=panel_width,
+                panel_length=panel_length,
+                panel_tilt=panel_tilt,
+                panel_azimuth=panel_azimuth,
+                solar_elevation=solar_elevation,
+                solar_azimuth=solar_azimuth,
+                clearance_height=clearance_height,
+                terrain_slope=0.0,
+                terrain_aspect=180.0,
+            )
+
+            if not shadow_i["polygon"] or len(shadow_i["polygon"]) < 3:
+                continue
+
+            shadow_poly = Polygon(shadow_i["polygon"])
+
+            for j in range(n):
+                if i == j:
+                    continue
+
+                cj_x, cj_y = centers_m[j]
+                dx = cj_x - ci_x
+                dy = cj_y - ci_y
+
+                # Check if panel j's center falls within panel i's shadow
+                point_j = (dx, dy)
+                if not shadow_poly.contains(Point(point_j)):
+                    continue
+
+                # Panel j's center is in the shadow. Now check heights:
+                # Shadow ray from panel i's TOP edge: at distance d from panel i,
+                # the shadow height above ground is:
+                #   h_shadow(d) = panel_top_z - d * tan(90° - solar_elevation)
+                #               = panel_top_z - d / tan(solar_elevation)
+                d = np.sqrt(dx * dx + dy * dy)
+                if d < 0.01:
+                    continue  # same position, skip
+
+                shadow_height_at_j = panel_top_z - d / max(np.tan(el_rad), 0.001)
+
+                # If shadow height is above panel j's bottom edge, it's occluded
+                if shadow_height_at_j > panel_bottom_z:
+                    shaded_set.add(j)
+                    # Fraction: what portion of panel j's height is in shadow
+                    visible_height = max(0.0, shadow_height_at_j - panel_bottom_z)
+                    panel_height_range = panel_top_z - panel_bottom_z
+                    if panel_height_range > 0.01:
+                        frac = min(1.0, visible_height / panel_height_range)
+                        occlusion[j] = max(occlusion[j], frac)
+                    else:
+                        occlusion[j] = max(occlusion[j], 1.0)
+
+        # Compute total occluded area
+        panel_area = panel_width * panel_length
+        total_occluded = sum(occlusion[j] * panel_area for j in range(n))
+
+        return {
+            "shaded_indices": sorted(shaded_set),
+            "occlusion_fraction": occlusion,
+            "total_occluded_area_m2": total_occluded,
+        }
