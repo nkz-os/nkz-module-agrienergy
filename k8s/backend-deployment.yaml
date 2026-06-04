@@ -31,7 +31,7 @@ spec:
       # No imagePullSecrets: public GHCR images pull anonymously (CLAUDE.md)
       containers:
         - name: backend
-          image: ghcr.io/nkz-os/nkz-module-agrienergy/agrienergy-backend:main
+          image: ghcr.io/nkz-os/nkz-module-agrienergy/agrienergy-backend@sha256:8d92de76c88207491c31e3ff2cbd5d9f1e317406defcfa42455bf263e61d8bb3
           imagePullPolicy: Always
           ports:
             - name: http
