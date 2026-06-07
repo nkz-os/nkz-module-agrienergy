@@ -271,8 +271,8 @@ ENTITY_TYPE_AGRI_SOLAR_PARK = "AgriSolarPark"
 
 
 def _ref_agri_parcel_from_entity(entity: dict) -> str | None:
-    """Extract parcel URN from refAgriParcel attribute."""
-    ref = entity.get("refAgriParcel") or {}
+    """Extract parcel URN from hasAgriParcel attribute."""
+    ref = entity.get("hasAgriParcel") or {}
     if isinstance(ref, dict):
         return ref.get("object") or ref.get("value")
     return str(ref) if ref else None
@@ -293,8 +293,8 @@ async def get_parks(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """
-    List all solar parks (AgriSolarPark entities). Each park has refAgriParcel;
-    trackers are matched by refAgriParcel so we include tracker_count and tracker_ids.
+    List all solar parks (AgriSolarPark entities). Each park has hasAgriParcel;
+    trackers are matched by hasAgriParcel so we include tracker_count and tracker_ids.
     """
     ngsi = ContextBrokerClient()
     parks_raw = await ngsi.get_entities_by_type(tenant_id, ENTITY_TYPE_AGRI_SOLAR_PARK)
@@ -350,7 +350,7 @@ async def get_park_trackers(
     park_id: str,
     tenant_id: str = Depends(get_tenant_id),
 ):
-    """List trackers that belong to this park (same refAgriParcel as the park)."""
+    """List trackers that belong to this park (same hasAgriParcel as the park)."""
     ngsi = ContextBrokerClient()
     park = await ngsi.get_entity(tenant_id, park_id)
     if not park or park.get("type") != ENTITY_TYPE_AGRI_SOLAR_PARK:
@@ -382,7 +382,7 @@ async def create_park(
         "id": entity_id,
         "type": ENTITY_TYPE_AGRI_SOLAR_PARK,
         "name": {"type": "Property", "value": body.name},
-        "refAgriParcel": {"type": "Relationship", "object": body.ref_agri_parcel},
+        "hasAgriParcel": {"type": "Relationship", "object": body.ref_agri_parcel},
     }
     ok = await ngsi.create_entity(tenant_id, entity)
     if not ok:
@@ -598,7 +598,7 @@ async def process_ngsild_notification(
         # 2. Bucle de Evaluación
         for tracker in trackers:
             tracker_id = tracker.get("id")
-            parcel_id = tracker.get("refAgriParcel", {}).get("object", "urn:ngsi-ld:AgriParcel:Default")
+            parcel_id = tracker.get("hasAgriParcel", {}).get("object", "urn:ngsi-ld:AgriParcel:Default")
             
             # Panel parameters — SDM-aligned names with legacy fallback
             _dim = tracker.get("panelDimension", {}).get("value", {})
