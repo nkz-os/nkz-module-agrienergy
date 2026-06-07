@@ -1,6 +1,7 @@
 {
   "name": "agrienergy-module",
   "version": "1.0.0",
+  "packageManager": "pnpm@9.0.0",
   "description": "AgriEnergy Orchestrator — Nekazari Platform Module",
   "license": "AGPL-3.0",
   "type": "module",
