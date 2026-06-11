@@ -1,0 +1,128 @@
+{
+  "agrienergy": {
+    "parks": {
+      "title": "Parcs solars",
+      "selectPark": "Seleccionar parc",
+      "noParks": "No hi ha parcs solars. Crea'n un vinculat a una parcel·la.",
+      "createPark": "Crear parc solar",
+      "cancel": "Cancel·lar",
+      "parkName": "Nom del parc",
+      "parkNamePlaceholder": "Ex. Parc Nord",
+      "selectParcel": "Parcel·la",
+      "noParcels": "No hi ha parcel·les. Crea una parcel·la al mapa primer.",
+      "create": "Crear parc",
+      "createError": "Error en crear el parc.",
+      "trackers": "trackers",
+      "trackersInPark": "Trackers en aquest parc",
+      "noTrackersInPark": "Cap tracker en aquesta parcel·la. Afegeix trackers amb refAgriParcel a aquesta parcel·la."
+    },
+    "panel": {
+      "title": "Valors instantanis",
+      "selectTracker": "Selecciona un tracker per veure valors en directe",
+      "orientation": "Orientació",
+      "tilt": "Inclinació",
+      "azimuth": "Azimut",
+      "power": "Potència",
+      "measuredPower": "Mesurada",
+      "expectedPower": "Esperada",
+      "sensors": "Sensors",
+      "lastUpdate": "Darrera actualització",
+      "noData": "Sense dades",
+      "W": "W",
+      "deg": "°"
+    },
+    "dashboard": {
+      "statusOk": "En línia",
+      "statusWarning": "Desactualitzat",
+      "statusOffline": "Fora de línia",
+      "tilt": "Inclinació",
+      "power": "Potència",
+      "orientation": "Orientació",
+      "powerDetails": "Detall de potència",
+      "efficiency": "Eficiència",
+      "battery": "Bateria"
+    },
+    "manual": {
+      "title": "Controls manuals",
+      "stow": "Posició segura",
+      "trackSun": "Seguir el sol",
+      "customOverride": "Override personalitzat",
+      "applyCustom": "Aplicar override",
+      "confirmStow": "Confirmar posició segura? El tracker es mourà a -60° (posició d'estiba).",
+      "confirmTrack": "Confirmar seguiment solar? El tracker es mourà a 0° inclinació, 180° azimut.",
+      "confirmCustom": "Confirmar override manual? Inclinació: {tilt}°, Azimut: {azimuth}°.",
+      "confirm": "Confirmar",
+      "overrideSent": "Override enviat correctament",
+      "overrideError": "Error en enviar l'override"
+    },
+    "algorithms": {
+      "title": "Algorisme d'orientació",
+      "description": "Tria el preset que defineix com es calcula tilt i azimuth.",
+      "select": "Seleccionar algorisme",
+      "saved": "Algorisme desat",
+      "error": "Error en desar l'algorisme",
+      "activate": "Activar",
+      "customActive": "Algorisme personalitzat",
+      "customDescription": "S'està fent servir un algorisme personalitzat o un override manual."
+    },
+    "algorithmDescriptions": {
+      "maximize": "Maximitza la captació solar. Panells plans quan hi ha sol, estibats en foscor.",
+      "hierarchical_failsafe": "Cascada de seguretat multicondició: vent → estrès → generació → estiba.",
+      "thermal_stress": "Redueix la temperatura cel·lular inclinant els panells a 70° quan T > 35°C.",
+      "wind_barrier": "Mode de protecció del vent. Panells a 75° quan el vent > 15 m/s.",
+      "frost_prevention": "Prevé danys per gelada. Panells plans quan la temperatura foliar ≤ 2°C.",
+      "hydric_stress": "Mitiga l'estrès hídric. Ombreja els cultius quan l'índex d'estrès > 0.8.",
+      "par_optimization": "Optimitza la llum per als cultius sota panell. S'ajusta segons els nivells PAR."
+    },
+    "algorithmTriggers": {
+      "maximize": "GHI > 10 → 0° | else → -60°",
+      "hierarchical_failsafe": "Wind > Stress > GHI > Standby",
+      "thermal_stress": "T > 35°C → 70°",
+      "wind_barrier": "Wind > 15 m/s → 75°",
+      "frost_prevention": "T_leaf ≤ 2°C → 0°",
+      "hydric_stress": "Stress > 0.8 → 70°",
+      "par_optimization": "PAR < 800 → -60°"
+    },
+    "signals": {
+      "title": "Configurar senyals",
+      "description": "Assigna una entitat i atribut de la plataforma a cada variable de l'algorisme.",
+      "save": "Desar mapatge",
+      "saved": "Mapatge desat",
+      "error": "Error en desar",
+      "noSources": "No hi ha fonts disponibles. Registra sensors a la plataforma.",
+      "selectEntity": "Seleccionar entitat",
+      "selectAttribute": "Seleccionar atribut",
+      "configureHint": "Configura senyals per veure valors de sensors.",
+      "clear": "Netejar"
+    },
+    "sandbox": {
+      "title": "Simulació d'ombra",
+      "targetTiltLabel": "Angle objectiu d'inclinació",
+      "simulating": "Simulant...",
+      "runSimulation": "Executar simulació",
+      "resultsTitle": "Resultats de la simulació",
+      "expectedPowerLabel": "Potència esperada",
+      "shadowAreaLabel": "Àrea d'ombra (2.5D)"
+    },
+    "sensorLabels": {
+      "weather.ghi": "GHI",
+      "weather.dni": "DNI",
+      "weather.dhi": "DHI",
+      "weather.temperature": "Temperatura",
+      "weather.wind_speed": "Velocitat del vent",
+      "weather.humidity": "Humitat",
+      "crop.stress_index": "Índex d'estrès",
+      "crop.leaf_temperature": "Temp. foliar",
+      "crop.par": "PAR"
+    },
+    "parkOverview": {
+      "refresh": "Actualitzar",
+      "online": "En línia",
+      "name": "Nom",
+      "status": "Estat"
+    }
+  },
+  "common": {
+    "loading": "Carregant..."
+  }
+}
