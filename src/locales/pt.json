@@ -1,0 +1,128 @@
+{
+  "agrienergy": {
+    "parks": {
+      "title": "Parques solares",
+      "selectPark": "Selecionar parque",
+      "noParks": "Não há parques solares. Crie um vinculado a uma parcela.",
+      "createPark": "Criar parque solar",
+      "cancel": "Cancelar",
+      "parkName": "Nome do parque",
+      "parkNamePlaceholder": "Ex. Parque Norte",
+      "selectParcel": "Parcela",
+      "noParcels": "Não há parcelas. Crie primeiro uma parcela no mapa.",
+      "create": "Criar parque",
+      "createError": "Erro ao criar o parque.",
+      "trackers": "trackers",
+      "trackersInPark": "Trackers neste parque",
+      "noTrackersInPark": "Nenhum tracker nesta parcela. Adicione trackers com refAgriParcel para esta parcela."
+    },
+    "panel": {
+      "title": "Valores instantâneos",
+      "selectTracker": "Selecione um tracker para ver valores em direto",
+      "orientation": "Orientação",
+      "tilt": "Inclinação",
+      "azimuth": "Azimute",
+      "power": "Potência",
+      "measuredPower": "Medida",
+      "expectedPower": "Esperada",
+      "sensors": "Sensores",
+      "lastUpdate": "Última atualização",
+      "noData": "Sem dados",
+      "W": "W",
+      "deg": "°"
+    },
+    "dashboard": {
+      "statusOk": "Online",
+      "statusWarning": "Desatualizado",
+      "statusOffline": "Offline",
+      "tilt": "Inclinação",
+      "power": "Potência",
+      "orientation": "Orientação",
+      "powerDetails": "Detalhe de potência",
+      "efficiency": "Eficiência",
+      "battery": "Bateria"
+    },
+    "manual": {
+      "title": "Controlos manuais",
+      "stow": "Posição segura",
+      "trackSun": "Seguir o sol",
+      "customOverride": "Override personalizado",
+      "applyCustom": "Aplicar override",
+      "confirmStow": "Confirmar posição segura? O tracker mover-se-á para -60° (posição de recolha).",
+      "confirmTrack": "Confirmar seguimento solar? O tracker mover-se-á para 0° de inclinação, 180° de azimute.",
+      "confirmCustom": "Confirmar override manual? Inclinação: {tilt}°, Azimute: {azimuth}°.",
+      "confirm": "Confirmar",
+      "overrideSent": "Override enviado com sucesso",
+      "overrideError": "Erro ao enviar o override"
+    },
+    "algorithms": {
+      "title": "Algoritmo de orientação",
+      "description": "Escolha o preset que define como tilt e azimuth são calculados.",
+      "select": "Selecionar algoritmo",
+      "saved": "Algoritmo guardado",
+      "error": "Erro ao guardar o algoritmo",
+      "activate": "Ativar",
+      "customActive": "Algoritmo personalizado",
+      "customDescription": "Está a ser usado um algoritmo personalizado ou um override manual."
+    },
+    "algorithmDescriptions": {
+      "maximize": "Maximiza a captação solar. Painéis planos com sol, recolhidos na escuridão.",
+      "hierarchical_failsafe": "Cascata de segurança multicondição: vento → stress → geração → recolha.",
+      "thermal_stress": "Reduz a temperatura celular inclinando os painéis a 70° quando T > 35°C.",
+      "wind_barrier": "Modo de proteção contra o vento. Painéis a 75° quando o vento > 15 m/s.",
+      "frost_prevention": "Previne danos por geada. Painéis planos quando a temperatura foliar ≤ 2°C.",
+      "hydric_stress": "Mitiga o stress hídrico. Sombreia as culturas quando o índice de stress > 0.8.",
+      "par_optimization": "Otimiza a luz para culturas sob painel. Ajusta-se segundo os níveis PAR."
+    },
+    "algorithmTriggers": {
+      "maximize": "GHI > 10 → 0° | else → -60°",
+      "hierarchical_failsafe": "Wind > Stress > GHI > Standby",
+      "thermal_stress": "T > 35°C → 70°",
+      "wind_barrier": "Wind > 15 m/s → 75°",
+      "frost_prevention": "T_leaf ≤ 2°C → 0°",
+      "hydric_stress": "Stress > 0.8 → 70°",
+      "par_optimization": "PAR < 800 → -60°"
+    },
+    "signals": {
+      "title": "Configurar sinais",
+      "description": "Atribua uma entidade e atributo da plataforma a cada variável do algoritmo.",
+      "save": "Guardar mapeamento",
+      "saved": "Mapeamento guardado",
+      "error": "Erro ao guardar",
+      "noSources": "Não há fontes disponíveis. Registe sensores na plataforma.",
+      "selectEntity": "Selecionar entidade",
+      "selectAttribute": "Selecionar atributo",
+      "configureHint": "Configure sinais para ver valores de sensores.",
+      "clear": "Limpar"
+    },
+    "sandbox": {
+      "title": "Simulação de sombra",
+      "targetTiltLabel": "Ângulo alvo de inclinação",
+      "simulating": "A simular...",
+      "runSimulation": "Executar simulação",
+      "resultsTitle": "Resultados da simulação",
+      "expectedPowerLabel": "Potência esperada",
+      "shadowAreaLabel": "Área de sombra (2.5D)"
+    },
+    "sensorLabels": {
+      "weather.ghi": "GHI",
+      "weather.dni": "DNI",
+      "weather.dhi": "DHI",
+      "weather.temperature": "Temperatura",
+      "weather.wind_speed": "Velocidade do vento",
+      "weather.humidity": "Humidade",
+      "crop.stress_index": "Índice de stress",
+      "crop.leaf_temperature": "Temp. foliar",
+      "crop.par": "PAR"
+    },
+    "parkOverview": {
+      "refresh": "Atualizar",
+      "online": "Online",
+      "name": "Nome",
+      "status": "Estado"
+    }
+  },
+  "common": {
+    "loading": "A carregar..."
+  }
+}

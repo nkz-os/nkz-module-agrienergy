@@ -1,0 +1,128 @@
+{
+  "agrienergy": {
+    "parks": {
+      "title": "Eguzki-parkeak",
+      "selectPark": "Parkea hautatu",
+      "noParks": "Ez dago eguzki-parkerik. Sortu bat lursail bati lotuta.",
+      "createPark": "Eguzki-parkea sortu",
+      "cancel": "Utzi",
+      "parkName": "Parkearen izena",
+      "parkNamePlaceholder": "Adib. Iparraldeko parkea",
+      "selectParcel": "Lursaila",
+      "noParcels": "Ez dago lursailik. Sortu lursail bat mapan lehenik.",
+      "create": "Parkea sortu",
+      "createError": "Errorea parkea sortzean.",
+      "trackers": "tracker",
+      "trackersInPark": "Parke honetako trackerrak",
+      "noTrackersInPark": "Ez dago trackerrik lursail honetan. Gehitu trackerrak refAgriParcel honekin lursail honetara."
+    },
+    "panel": {
+      "title": "Uneko balioak",
+      "selectTracker": "Hautatu tracker bat zuzeneko balioak ikusteko",
+      "orientation": "Orientazioa",
+      "tilt": "Inklinazioa",
+      "azimuth": "Azimuta",
+      "power": "Potentzia",
+      "measuredPower": "Neurtua",
+      "expectedPower": "Espero dena",
+      "sensors": "Sentsoreak",
+      "lastUpdate": "Azken eguneratzea",
+      "noData": "Daturik ez",
+      "W": "W",
+      "deg": "°"
+    },
+    "dashboard": {
+      "statusOk": "Linean",
+      "statusWarning": "Zaharkitua",
+      "statusOffline": "Lineaz kanpo",
+      "tilt": "Inklinazioa",
+      "power": "Potentzia",
+      "orientation": "Orientazioa",
+      "powerDetails": "Potentziaren xehetasuna",
+      "efficiency": "Eraginkortasuna",
+      "battery": "Bateria"
+    },
+    "manual": {
+      "title": "Eskuzko kontrolak",
+      "stow": "Posizio segurua",
+      "trackSun": "Eguzkia jarraitu",
+      "customOverride": "Override pertsonalizatua",
+      "applyCustom": "Override-a aplikatu",
+      "confirmStow": "Posizio segurua berretsi? Trackerra -60°-ra mugituko da (biltegiratze-posizioa).",
+      "confirmTrack": "Eguzki-jarraipena berretsi? Trackerra 0° inklinaziora eta 180° azimutera mugituko da.",
+      "confirmCustom": "Eskuzko override-a berretsi? Inklinazioa: {tilt}°, Azimuta: {azimuth}°.",
+      "confirm": "Berretsi",
+      "overrideSent": "Override-a behar bezala bidali da",
+      "overrideError": "Errorea override-a bidaltzean"
+    },
+    "algorithms": {
+      "title": "Orientazio-algoritmoa",
+      "description": "Aukeratu tilt eta azimuth nola kalkulatzen diren definitzen duen preseta.",
+      "select": "Algoritmoa hautatu",
+      "saved": "Algoritmoa gordeta",
+      "error": "Errorea algoritmoa gordetzean",
+      "activate": "Aktibatu",
+      "customActive": "Algoritmo pertsonalizatua",
+      "customDescription": "Algoritmo pertsonalizatu bat edo eskuzko override bat erabiltzen ari da."
+    },
+    "algorithmDescriptions": {
+      "maximize": "Eguzki-bilketa maximizatzen du. Panelak lau eguzkia dagoenean, bilduta iluntasunean.",
+      "hierarchical_failsafe": "Baldintza anitzeko segurtasun-kaskada: haizea → estresa → sorkuntza → biltegiratzea.",
+      "thermal_stress": "Zelula-tenperatura murrizten du panelak 70°-ra inklinatuz T > 35°C denean.",
+      "wind_barrier": "Haize-babes modua. Panelak 75°-ra haizea > 15 m/s denean.",
+      "frost_prevention": "Izotz-kalteak saihesten ditu. Panelak lau hosto-tenperatura ≤ 2°C denean.",
+      "hydric_stress": "Estres hidrikoa arintzen du. Laboreak itzaltzen ditu estres-indizea > 0.8 denean.",
+      "par_optimization": "Panel azpiko laboreentzako argia optimizatzen du. PAR mailen arabera doitzen da."
+    },
+    "algorithmTriggers": {
+      "maximize": "GHI > 10 → 0° | else → -60°",
+      "hierarchical_failsafe": "Wind > Stress > GHI > Standby",
+      "thermal_stress": "T > 35°C → 70°",
+      "wind_barrier": "Wind > 15 m/s → 75°",
+      "frost_prevention": "T_leaf ≤ 2°C → 0°",
+      "hydric_stress": "Stress > 0.8 → 70°",
+      "par_optimization": "PAR < 800 → -60°"
+    },
+    "signals": {
+      "title": "Seinaleak konfiguratu",
+      "description": "Esleitu plataformako entitate eta atributu bat algoritmoaren aldagai bakoitzari.",
+      "save": "Mapaketa gorde",
+      "saved": "Mapaketa gordeta",
+      "error": "Errorea gordetzean",
+      "noSources": "Ez dago iturri erabilgarririk. Erregistratu sentsoreak plataforman.",
+      "selectEntity": "Entitatea hautatu",
+      "selectAttribute": "Atributua hautatu",
+      "configureHint": "Konfiguratu seinaleak sentsoreen balioak ikusteko.",
+      "clear": "Garbitu"
+    },
+    "sandbox": {
+      "title": "Itzal-simulazioa",
+      "targetTiltLabel": "Helburuko inklinazio-angelua",
+      "simulating": "Simulatzen...",
+      "runSimulation": "Simulazioa exekutatu",
+      "resultsTitle": "Simulazioaren emaitzak",
+      "expectedPowerLabel": "Espero den potentzia",
+      "shadowAreaLabel": "Itzal-azalera (2.5D)"
+    },
+    "sensorLabels": {
+      "weather.ghi": "GHI",
+      "weather.dni": "DNI",
+      "weather.dhi": "DHI",
+      "weather.temperature": "Tenperatura",
+      "weather.wind_speed": "Haize-abiadura",
+      "weather.humidity": "Hezetasuna",
+      "crop.stress_index": "Estres-indizea",
+      "crop.leaf_temperature": "Hosto-tenp.",
+      "crop.par": "PAR"
+    },
+    "parkOverview": {
+      "refresh": "Eguneratu",
+      "online": "Linean",
+      "name": "Izena",
+      "status": "Egoera"
+    }
+  },
+  "common": {
+    "loading": "Kargatzen..."
+  }
+}
