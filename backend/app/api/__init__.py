@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.middleware import TokenPayload, get_tenant_id, require_roles
@@ -32,6 +33,7 @@ from app.engines.pv_engine import PVEngine, PVSpec
 from app.engines.shadow_engine import ShadowEngine
 from app.models.ngsi import NGSILDSubscriptionPayload
 from app.services.ngsi_client import ContextBrokerClient
+from app.services.orion import get_entity_or_none, get_orion, prop, rel
 from app.services.intelligence_client import IntelligenceClient
 from app.services.device_command_client import DeviceCommandClient
 from app.engines.algorithm_engine import AlgorithmEngine
@@ -76,11 +78,38 @@ def _parse_signal_mapping(tracker: dict) -> list[dict]:
 
 
 async def _resolve_signal_mapping(
+    orion,
+    mapping: list[dict],
+) -> dict[str, float]:
+    """Fetch each mapped entity via SDK OrionClient and extract attribute value.
+
+    Returns contextKey -> float. Per-item errors are silenced (a broken signal
+    must not kill the endpoint); top-level 502 is the caller's responsibility.
+    """
+    result: dict[str, float] = {}
+    for item in mapping:
+        ctx_key = item["contextKey"]
+        entity_id = item["entityId"]
+        attr_name = item["attribute"]
+        try:
+            entity = await get_entity_or_none(orion, entity_id)
+            if entity is None:
+                continue
+            val = _get_float_attr(entity, attr_name, 0.0)
+            result[ctx_key] = val
+        except Exception as e:
+            logger.debug("Resolve signal %s from %s: %s", ctx_key, entity_id, e)
+    return result
+
+
+async def _resolve_signal_mapping_legacy(
     ngsi: ContextBrokerClient,
     tenant_id: str,
     mapping: list[dict],
 ) -> dict[str, float]:
-    """Fetch each mapped entity from Orion and extract attribute value. Returns contextKey -> float."""
+    """Legacy variant used by /notify (still on ContextBrokerClient).
+    # removed with /notify migration (next task)
+    """
     result: dict[str, float] = {}
     for item in mapping:
         ctx_key = item["contextKey"]
@@ -170,9 +199,12 @@ async def get_tracker_status(
     Return instant values for a tracker: orientation, power, storage, mapped sensors.
     Used by the frontend panel and to drive Cesium GLB orientation.
     """
-    ngsi = ContextBrokerClient()
-    tracker = await ngsi.get_entity(tenant_id, tracker_id)
-    if not tracker:
+    orion = get_orion(tenant_id)
+    try:
+        tracker = await get_entity_or_none(orion, tracker_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
+    if tracker is None:
         raise HTTPException(status_code=404, detail="Tracker not found")
 
     tilt = _get_float_attr(tracker, "tilt", 0.0)
@@ -185,7 +217,7 @@ async def get_tracker_status(
         expected_w = None
 
     mapping_list = _parse_signal_mapping(tracker)
-    sensors = await _resolve_signal_mapping(ngsi, tenant_id, mapping_list)
+    sensors = await _resolve_signal_mapping(orion, mapping_list)
     signal_mapping = [SignalMappingItem(**m) for m in mapping_list] if mapping_list else None
 
     active_algorithm_id = None
@@ -224,13 +256,19 @@ async def get_signal_sources(
     List entities that can be used as signal sources for algorithm context.
     Returns entity id, name, type, and numeric attributes (for dropdowns in Configure signals UI).
     """
-    ngsi = ContextBrokerClient()
+    orion = get_orion(tenant_id)
     types_list = [t.strip() for t in entity_types.split(",") if t.strip()]
     if not types_list:
         types_list = list(DEFAULT_SIGNAL_ENTITY_TYPES)
     sources: list[SignalSource] = []
-    for etype in types_list:
-        entities = await ngsi.get_entities_by_type(tenant_id, etype)
+    try:
+        entities_by_type: list[tuple[str, list[dict]]] = [
+            (etype, await orion.query_entities(type=etype, limit=500))
+            for etype in types_list
+        ]
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
+    for etype, entities in entities_by_type:
         for entity in entities:
             eid = entity.get("id")
             if not eid:
@@ -281,8 +319,11 @@ def _ref_agri_parcel_from_entity(entity: dict) -> str | None:
 @router.get("/parcels", response_model=ParcelsResponse)
 async def get_parcels(tenant_id: str = Depends(get_tenant_id)):
     """List parcels (AgriParcel) for dropdown when creating a solar park."""
-    ngsi = ContextBrokerClient()
-    entities = await ngsi.get_entities_by_type(tenant_id, "AgriParcel")
+    orion = get_orion(tenant_id)
+    try:
+        entities = await orion.query_entities(type="AgriParcel", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     return ParcelsResponse(
         parcels=[ParcelItem(id=e.get("id", ""), name=_entity_name(e)) for e in entities if e.get("id")]
     )
@@ -296,9 +337,12 @@ async def get_parks(
     List all solar parks (AgriSolarPark entities). Each park has hasAgriParcel;
     trackers are matched by hasAgriParcel so we include tracker_count and tracker_ids.
     """
-    ngsi = ContextBrokerClient()
-    parks_raw = await ngsi.get_entities_by_type(tenant_id, ENTITY_TYPE_AGRI_SOLAR_PARK)
-    trackers_all = await ngsi.get_entities_by_type(tenant_id, "AgriEnergyTracker")
+    orion = get_orion(tenant_id)
+    try:
+        parks_raw = await orion.query_entities(type=ENTITY_TYPE_AGRI_SOLAR_PARK, limit=500)
+        trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     # Group trackers by parcel URN
     by_parcel: dict[str, list[dict]] = {}
     for t in trackers_all:
@@ -327,7 +371,7 @@ async def get_parks(
         trackers_in_parcel = by_parcel.get(parcel_urn, [])
         parcel_name: str | None = None
         try:
-            parcel_entity = await ngsi.get_entity(tenant_id, parcel_urn)
+            parcel_entity = await get_entity_or_none(orion, parcel_urn)
             if parcel_entity:
                 parcel_name = _entity_name(parcel_entity)
         except Exception:
@@ -351,14 +395,20 @@ async def get_park_trackers(
     tenant_id: str = Depends(get_tenant_id),
 ):
     """List trackers that belong to this park (same hasAgriParcel as the park)."""
-    ngsi = ContextBrokerClient()
-    park = await ngsi.get_entity(tenant_id, park_id)
+    orion = get_orion(tenant_id)
+    try:
+        park = await get_entity_or_none(orion, park_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     if not park or park.get("type") != ENTITY_TYPE_AGRI_SOLAR_PARK:
         raise HTTPException(status_code=404, detail="Park not found")
     parcel_urn = _ref_agri_parcel_from_entity(park)
     if not parcel_urn:
         return {"trackers": []}
-    trackers_all = await ngsi.get_entities_by_type(tenant_id, "AgriEnergyTracker")
+    try:
+        trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     out: list[ParkTrackerItem] = []
     for t in trackers_all:
         if _ref_agri_parcel_from_entity(t) != parcel_urn:
@@ -376,20 +426,21 @@ async def create_park(
     Create a new solar park (AgriSolarPark entity) linked to a parcel.
     Requires context_broker_url to be set in config (Orion-LD).
     """
-    ngsi = ContextBrokerClient()
+    orion = get_orion(tenant_id)
     entity_id = f"urn:ngsi-ld:{ENTITY_TYPE_AGRI_SOLAR_PARK}:{uuid.uuid4().hex}"
     entity = {
         "id": entity_id,
         "type": ENTITY_TYPE_AGRI_SOLAR_PARK,
-        "name": {"type": "Property", "value": body.name},
-        "hasAgriParcel": {"type": "Relationship", "object": body.ref_agri_parcel},
+        "name": prop(body.name),
+        "hasAgriParcel": rel(body.ref_agri_parcel),
     }
-    ok = await ngsi.create_entity(tenant_id, entity)
-    if not ok:
+    try:
+        await orion.create_entity(entity)
+    except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
-            detail="Failed to create park in Context Broker (check context_broker_url)",
-        )
+            detail="Failed to create park in Context Broker",
+        ) from exc
     return {"park_id": entity_id, "name": body.name, "ref_agri_parcel": body.ref_agri_parcel}
 
 
@@ -404,7 +455,7 @@ async def update_tracker_algorithm(
     (e.g. {"id": "default:maximize"}), resolve from built-in presets and store the logic;
     otherwise store the given object in Orion.
     """
-    ngsi = ContextBrokerClient()
+    orion = get_orion(tenant_id)
     algo = body.activeAlgorithm
     if set(algo.keys()) <= {"id"} and algo.get("id"):
         preset_id = algo["id"]
@@ -414,9 +465,10 @@ async def update_tracker_algorithm(
         logic = presets[preset_id]
     else:
         logic = algo
-    ok = await ngsi.update_entity_attribute(tenant_id, tracker_id, "activeAlgorithm", logic)
-    if not ok:
-        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker")
+    try:
+        await orion.append_entity_attrs(tracker_id, {"activeAlgorithm": prop(logic)})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker") from exc
     return {"status": "updated", "tracker_id": tracker_id, "activeAlgorithm": logic}
 
 
@@ -430,11 +482,12 @@ async def update_tracker_signal_mapping(
     Update the signalMapping attribute of an AgriEnergyTracker in Orion-LD.
     Called by the frontend when the user saves "Configure signals".
     """
-    ngsi = ContextBrokerClient()
+    orion = get_orion(tenant_id)
     payload = [item.model_dump() for item in body.signalMapping]
-    ok = await ngsi.update_entity_attribute(tenant_id, tracker_id, "signalMapping", payload)
-    if not ok:
-        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker")
+    try:
+        await orion.append_entity_attrs(tracker_id, {"signalMapping": prop(payload)})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker") from exc
     return {"status": "updated", "tracker_id": tracker_id, "signalMapping": payload}
 
 
@@ -648,7 +701,7 @@ async def process_ngsild_notification(
             context = {"weather": {"ghi": ghi, "dni": dni}, "tracker": {"tilt": p_tilt, "azimuth": p_azimuth}}
             mapping_list = _parse_signal_mapping(tracker)
             if mapping_list:
-                resolved = await _resolve_signal_mapping(ngsi_client, tenant_id, mapping_list)
+                resolved = await _resolve_signal_mapping_legacy(ngsi_client, tenant_id, mapping_list)
                 if resolved:
                     nested = _context_from_flat_sensors(resolved)
                     for group, data in nested.items():
