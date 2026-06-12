@@ -40,6 +40,12 @@ class TestEvaluateRule:
         rule = {"if": [True, {"tilt": "abc", "azimuth": 170}, 0]}
         assert ENG.evaluate_rule(rule, {}) == {"azimuth": 170.0}
 
+    def test_null_azimuth_idiom_yields_tilt_only(self):
+        # The documented idiom for tilt-only custom rules: a multi-key dict
+        # with azimuth null is data (not an operator) and None is filtered out.
+        rule = {"if": [True, {"tilt": 45, "azimuth": None}, 0]}
+        assert ENG.evaluate_rule(rule, {}) == {"tilt": 45.0}
+
     def test_corrupt_rule_never_raises(self):
         assert ENG.evaluate_rule({"nonexistent_op": [1]}, {}) is None
 
@@ -54,6 +60,11 @@ class TestResolveOrientation:
 
     def test_number_sets_tilt_keeps_azimuth(self):
         assert ENG.resolve_orientation(30.0, 10.0, 170.0) == (30.0, 170.0)
+
+    def test_zero_result_is_a_valid_tilt_not_keep_current(self):
+        # 0.0 is falsy: a naive `if result:` guard would wrongly keep current.
+        # frost_prevention returns 0 (horizontal) when triggered.
+        assert ENG.resolve_orientation(0.0, 33.0, 170.0) == (0.0, 170.0)
 
     def test_dict_sets_both(self):
         assert ENG.resolve_orientation({"tilt": 30, "azimuth": 90}, 10, 170) == (30.0, 90.0)
