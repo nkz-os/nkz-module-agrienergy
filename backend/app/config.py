@@ -29,12 +29,18 @@ class Settings(BaseSettings):
     # Service-to-service authentication
     module_management_key: str = ""
 
-    # Context Broker (Orion-LD) for creating entities (e.g. AgriSolarPark). If empty, create_entity is no-op.
+    # Context Broker (Orion-LD) base URL (env CONTEXT_BROKER_URL; legacy /ngsi-ld/v1
+    # suffix is stripped by the adapter). If empty, the SDK falls back to ORION_LD_URL
+    # or the in-cluster default http://orion-ld-service:1026 — REST I/O still works,
+    # but ensure_subscriptions() skips registration (see services/subscriptions.py).
     context_broker_url: str = ""  # e.g. http://orion-ld:1026/ngsi-ld/v1
 
     # NGSI-LD @context URL (set via CONTEXT_URL env var in K8s). Used in Link header
     # when sending application/json to Orion-LD. ETSI NGSI-LD mandatory.
     context_url: str = ""  # e.g. https://nkz.robotika.cloud/ngsi-ld-context.json
+
+    # /notify webhook URL announced in Orion-LD subscriptions (K8s env NOTIFICATION_URL).
+    notification_url: str = "http://agrienergy-api-service:8000/api/agrienergy/notify"
 
     # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
     agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
