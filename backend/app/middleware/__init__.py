@@ -199,6 +199,24 @@ def require_roles(*required_roles: str):
     return role_checker
 
 
+def get_notification_tenant(
+    ngsild_tenant: Optional[str] = Header(None, alias="NGSILD-Tenant"),
+    fiware_service: Optional[str] = Header(None, alias="Fiware-Service"),
+) -> str:
+    """Tenant for Orion-LD notification webhooks (platform pattern: telemetry-worker).
+
+    Orion-LD sends NGSILD-Tenant (and legacy Fiware-Service) but no JWT —
+    notifications are cluster-internal; public traffic is fronted by api-gateway.
+    """
+    tenant = ngsild_tenant or fiware_service
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing NGSILD-Tenant header",
+        )
+    return tenant
+
+
 def get_tenant_id(
     x_tenant_id: Optional[str] = Header(None, alias="x-tenant-id"),
     ngsild_tenant: Optional[str] = Header(None, alias="ngsild-tenant"),

@@ -1,5 +1,5 @@
 import numpy as np
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon
 from shapely.affinity import rotate, translate, scale
 
 class ShadowEngine:
@@ -74,11 +74,11 @@ class ShadowEngine:
         # 3. Vector solar (RAYO DE LUZ DESDE EL SOL AL SUELO)
         # Apuntamos hacia ABAJO (negativo Z)
         el_rad = np.radians(solar_elevation)
-        az_rad = np.radians(180 - solar_azimuth) 
-        
-        # Vector apuntando hacia el sol:
-        # sz = sin(el), sy = cos(el)*cos(az), sx = cos(el)*sin(az)
-        # Invertimos para obtener el rayo que Cae:
+        # Solar azimuth used as-is (0=N, 90=E, 180=S): toward-sun vector is
+        # (cos(el)·sin(az), cos(el)·cos(az), sin(el)); the falling ray is its
+        # negation. (A previous 180-az transform mirrored shadows N/S.)
+        az_rad = np.radians(solar_azimuth)
+
         sz_ray = -np.sin(el_rad)
         sy_ray = -np.cos(el_rad) * np.cos(az_rad)
         sx_ray = -np.cos(el_rad) * np.sin(az_rad)
@@ -113,7 +113,14 @@ class ShadowEngine:
              
         # Crear polígono 2D plano (Shapely)
         poly = Polygon(projected).convex_hull
-        
+
+        if poly.is_empty or poly.geom_type != "Polygon" or poly.area < 1e-9:
+            # Collinear projection (e.g. vertical panel under zenith sun):
+            # degenerate shadow with no area. Float noise in the rotation
+            # matrices can yield a sliver Polygon instead of a LineString,
+            # hence the area epsilon.
+            return {"area_m2": 0.0, "polygon": []}
+
         return {
             "area_m2": poly.area,
             "polygon": list(poly.exterior.coords)
@@ -316,82 +323,55 @@ class ShadowEngine:
             y = (lat - ref_lat2) * m_per_deg_lat
             centers_m.append((x, y))
 
-        # Precompute each panel's 3D footprint (top edge height)
-        # Panel is a rectangle tilted by panel_tilt around its center axis.
-        # Top edge height above ground = clearance_height + panel_width * sin(tilt)
+        # Panel vertical span: top edge height above ground.
+        # panel_azimuth is intentionally unused: the inter-row top-edge model
+        # is azimuth-independent (cast height depends only on tilt and sun).
+        # ASSUMPTION: azimuth-independent inter-row shading is acceptable for
+        # this module's accuracy target — confirm before refining.
         tilt_rad = np.radians(panel_tilt)
         panel_top_z = clearance_height + panel_width * abs(np.sin(tilt_rad))
         panel_bottom_z = clearance_height
+        panel_height_range = panel_top_z - panel_bottom_z
 
-        # Sun ray direction (unit vector pointing TOWARD the sun)
         el_rad = np.radians(solar_elevation)
-        az_rad = np.radians(180 - solar_azimuth)
-        sun_dir = np.array([
-            np.cos(el_rad) * np.sin(az_rad),   # x (East)
-            np.cos(el_rad) * np.cos(az_rad),   # y (North)
-            np.sin(el_rad),                     # z (Up)
-        ])
+        az_rad = np.radians(solar_azimuth)
+        # Horizontal direction shadows extend (away from the sun)
+        ux = -np.sin(az_rad)
+        uy = -np.cos(az_rad)
+        # Lateral half-extent: caster and receiver half-lengths (conservative)
+        lateral_limit = panel_length
 
         occlusion = [0.0] * n
         shaded_set: set = set()
+        tan_el = np.tan(el_rad)
 
-        # For each panel i, check if it shades any other panel j
         for i in range(n):
             ci_x, ci_y = centers_m[i]
-
-            # Compute panel i's shadow polygon on the ground at origin
-            shadow_i = self.calculate_shadow_polygon(
-                panel_width=panel_width,
-                panel_length=panel_length,
-                panel_tilt=panel_tilt,
-                panel_azimuth=panel_azimuth,
-                solar_elevation=solar_elevation,
-                solar_azimuth=solar_azimuth,
-                clearance_height=clearance_height,
-                terrain_slope=0.0,
-                terrain_aspect=180.0,
-            )
-
-            if not shadow_i["polygon"] or len(shadow_i["polygon"]) < 3:
-                continue
-
-            shadow_poly = Polygon(shadow_i["polygon"])
-
             for j in range(n):
                 if i == j:
                     continue
-
-                cj_x, cj_y = centers_m[j]
-                dx = cj_x - ci_x
-                dy = cj_y - ci_y
-
-                # Check if panel j's center falls within panel i's shadow
-                point_j = (dx, dy)
-                if not shadow_poly.contains(Point(point_j)):
+                dx = centers_m[j][0] - ci_x
+                dy = centers_m[j][1] - ci_y
+                # Distance from caster along the shadow direction
+                along = dx * ux + dy * uy
+                if along < 0.01:
+                    continue  # j is up-light of i, cannot be shaded by it
+                # Perpendicular offset: j must be roughly behind i, not beside it
+                lateral = abs(-dx * uy + dy * ux)
+                if lateral > lateral_limit:
                     continue
-
-                # Panel j's center is in the shadow. Now check heights:
-                # Shadow ray from panel i's TOP edge: at distance d from panel i,
-                # the shadow height above ground is:
-                #   h_shadow(d) = panel_top_z - d * tan(90° - solar_elevation)
-                #               = panel_top_z - d / tan(solar_elevation)
-                d = np.sqrt(dx * dx + dy * dy)
-                if d < 0.01:
-                    continue  # same position, skip
-
-                shadow_height_at_j = panel_top_z - d / max(np.tan(el_rad), 0.001)
-
-                # If shadow height is above panel j's bottom edge, it's occluded
+                # Shadow-top height at j's position: top edge drops tan(el) per meter
+                shadow_height_at_j = panel_top_z - along * tan_el
                 if shadow_height_at_j > panel_bottom_z:
                     shaded_set.add(j)
-                    # Fraction: what portion of panel j's height is in shadow
-                    visible_height = max(0.0, shadow_height_at_j - panel_bottom_z)
-                    panel_height_range = panel_top_z - panel_bottom_z
                     if panel_height_range > 0.01:
-                        frac = min(1.0, visible_height / panel_height_range)
-                        occlusion[j] = max(occlusion[j], frac)
+                        frac = min(
+                            1.0,
+                            (shadow_height_at_j - panel_bottom_z) / panel_height_range,
+                        )
                     else:
-                        occlusion[j] = max(occlusion[j], 1.0)
+                        frac = 1.0
+                    occlusion[j] = max(occlusion[j], frac)
 
         # Compute total occluded area
         panel_area = panel_width * panel_length

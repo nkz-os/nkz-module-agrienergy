@@ -6,9 +6,15 @@ from datetime import datetime
 import logging
 import uuid
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.middleware import TokenPayload, get_tenant_id, require_roles
+from app.middleware import (
+    TokenPayload,
+    get_notification_tenant,
+    get_tenant_id,
+    require_roles,
+)
 from app.models import (
     AlgorithmUpdate,
     CreateParkRequest,
@@ -31,7 +37,8 @@ from app.models import (
 from app.engines.pv_engine import PVEngine, PVSpec
 from app.engines.shadow_engine import ShadowEngine
 from app.models.ngsi import NGSILDSubscriptionPayload
-from app.services.ngsi_client import ContextBrokerClient
+from app.services.orion import get_entity_or_none, get_orion, prop, rel
+from app.services.subscriptions import ensure_subscriptions
 from app.services.intelligence_client import IntelligenceClient
 from app.services.device_command_client import DeviceCommandClient
 from app.engines.algorithm_engine import AlgorithmEngine
@@ -40,6 +47,28 @@ from app.engines.elevation import ElevationService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["AgriEnergy Orchestrator"])
+
+# Idempotence guard for the closed loop: /notify writes orientation back to the
+# tracker, which re-notifies us; skip all writes/MQTT when orientation is within
+# this tolerance of the current one so the loop converges instead of self-firing.
+TILT_TOLERANCE_DEG = 0.01
+
+
+def _angular_distance_deg(a: float, b: float) -> float:
+    """Shortest angular distance in degrees (wraps at 360)."""
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+async def orion_dep(tenant_id: str = Depends(get_tenant_id)):
+    """Per-request, tenant-scoped OrionClient; closed after the response.
+
+    Note: get_orion is resolved at call time so tests can monkeypatch app.api.get_orion.
+    """
+    orion = get_orion(tenant_id)
+    try:
+        yield orion
+    finally:
+        await orion.close()
 
 
 def _get_float_attr(entity: dict, key: str, default: float = 0.0) -> float:
@@ -76,23 +105,26 @@ def _parse_signal_mapping(tracker: dict) -> list[dict]:
 
 
 async def _resolve_signal_mapping(
-    ngsi: ContextBrokerClient,
-    tenant_id: str,
+    orion,
     mapping: list[dict],
 ) -> dict[str, float]:
-    """Fetch each mapped entity from Orion and extract attribute value. Returns contextKey -> float."""
+    """Fetch each mapped entity via SDK OrionClient and extract attribute value.
+
+    Returns contextKey -> float. Per-item errors are silenced (a broken signal
+    must not kill the endpoint); top-level 502 is the caller's responsibility.
+    """
     result: dict[str, float] = {}
     for item in mapping:
         ctx_key = item["contextKey"]
         entity_id = item["entityId"]
         attr_name = item["attribute"]
         try:
-            entity = await ngsi.get_entity(tenant_id, entity_id)
+            entity = await get_entity_or_none(orion, entity_id)
             if entity is None:
                 continue
             val = _get_float_attr(entity, attr_name, 0.0)
             result[ctx_key] = val
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.debug("Resolve signal %s from %s: %s", ctx_key, entity_id, e)
     return result
 
@@ -164,15 +196,17 @@ def _entity_name(entity: dict) -> str:
 @router.get("/status", response_model=TrackerStatusResponse)
 async def get_tracker_status(
     tracker_id: str = Query(..., description="AgriEnergyTracker entity ID"),
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Return instant values for a tracker: orientation, power, storage, mapped sensors.
     Used by the frontend panel and to drive Cesium GLB orientation.
     """
-    ngsi = ContextBrokerClient()
-    tracker = await ngsi.get_entity(tenant_id, tracker_id)
-    if not tracker:
+    try:
+        tracker = await get_entity_or_none(orion, tracker_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
+    if tracker is None:
         raise HTTPException(status_code=404, detail="Tracker not found")
 
     tilt = _get_float_attr(tracker, "tilt", 0.0)
@@ -185,7 +219,7 @@ async def get_tracker_status(
         expected_w = None
 
     mapping_list = _parse_signal_mapping(tracker)
-    sensors = await _resolve_signal_mapping(ngsi, tenant_id, mapping_list)
+    sensors = await _resolve_signal_mapping(orion, mapping_list)
     signal_mapping = [SignalMappingItem(**m) for m in mapping_list] if mapping_list else None
 
     active_algorithm_id = None
@@ -214,7 +248,7 @@ DEFAULT_SIGNAL_ENTITY_TYPES = ("WeatherObserved", "AgriSensor")
 
 @router.get("/signal-sources", response_model=SignalSourcesResponse)
 async def get_signal_sources(
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
     entity_types: str = Query(
         default=",".join(DEFAULT_SIGNAL_ENTITY_TYPES),
         description="Comma-separated NGSI-LD entity types (e.g. WeatherObserved,AgriSensor)",
@@ -224,13 +258,18 @@ async def get_signal_sources(
     List entities that can be used as signal sources for algorithm context.
     Returns entity id, name, type, and numeric attributes (for dropdowns in Configure signals UI).
     """
-    ngsi = ContextBrokerClient()
     types_list = [t.strip() for t in entity_types.split(",") if t.strip()]
     if not types_list:
         types_list = list(DEFAULT_SIGNAL_ENTITY_TYPES)
     sources: list[SignalSource] = []
-    for etype in types_list:
-        entities = await ngsi.get_entities_by_type(tenant_id, etype)
+    try:
+        entities_by_type: list[tuple[str, list[dict]]] = [
+            (etype, await orion.query_entities(type=etype, limit=500))
+            for etype in types_list
+        ]
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
+    for etype, entities in entities_by_type:
         for entity in entities:
             eid = entity.get("id")
             if not eid:
@@ -279,10 +318,12 @@ def _ref_agri_parcel_from_entity(entity: dict) -> str | None:
 
 
 @router.get("/parcels", response_model=ParcelsResponse)
-async def get_parcels(tenant_id: str = Depends(get_tenant_id)):
+async def get_parcels(orion=Depends(orion_dep)):
     """List parcels (AgriParcel) for dropdown when creating a solar park."""
-    ngsi = ContextBrokerClient()
-    entities = await ngsi.get_entities_by_type(tenant_id, "AgriParcel")
+    try:
+        entities = await orion.query_entities(type="AgriParcel", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     return ParcelsResponse(
         parcels=[ParcelItem(id=e.get("id", ""), name=_entity_name(e)) for e in entities if e.get("id")]
     )
@@ -290,15 +331,18 @@ async def get_parcels(tenant_id: str = Depends(get_tenant_id)):
 
 @router.get("/parks", response_model=ParksResponse)
 async def get_parks(
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     List all solar parks (AgriSolarPark entities). Each park has hasAgriParcel;
     trackers are matched by hasAgriParcel so we include tracker_count and tracker_ids.
     """
-    ngsi = ContextBrokerClient()
-    parks_raw = await ngsi.get_entities_by_type(tenant_id, ENTITY_TYPE_AGRI_SOLAR_PARK)
-    trackers_all = await ngsi.get_entities_by_type(tenant_id, "AgriEnergyTracker")
+    await ensure_subscriptions(orion.tenant_id)
+    try:
+        parks_raw = await orion.query_entities(type=ENTITY_TYPE_AGRI_SOLAR_PARK, limit=500)
+        trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     # Group trackers by parcel URN
     by_parcel: dict[str, list[dict]] = {}
     for t in trackers_all:
@@ -327,11 +371,11 @@ async def get_parks(
         trackers_in_parcel = by_parcel.get(parcel_urn, [])
         parcel_name: str | None = None
         try:
-            parcel_entity = await ngsi.get_entity(tenant_id, parcel_urn)
+            parcel_entity = await get_entity_or_none(orion, parcel_urn)
             if parcel_entity:
                 parcel_name = _entity_name(parcel_entity)
-        except Exception:
-            pass
+        except httpx.HTTPError:
+            logger.debug("Parcel name lookup failed for %s", parcel_urn)
         parks.append(
             ParkSummary(
                 park_id=park_id,
@@ -348,17 +392,22 @@ async def get_parks(
 @router.get("/parks/{park_id}/trackers")
 async def get_park_trackers(
     park_id: str,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """List trackers that belong to this park (same hasAgriParcel as the park)."""
-    ngsi = ContextBrokerClient()
-    park = await ngsi.get_entity(tenant_id, park_id)
+    try:
+        park = await get_entity_or_none(orion, park_id)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     if not park or park.get("type") != ENTITY_TYPE_AGRI_SOLAR_PARK:
         raise HTTPException(status_code=404, detail="Park not found")
     parcel_urn = _ref_agri_parcel_from_entity(park)
     if not parcel_urn:
         return {"trackers": []}
-    trackers_all = await ngsi.get_entities_by_type(tenant_id, "AgriEnergyTracker")
+    try:
+        trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Context Broker unavailable") from exc
     out: list[ParkTrackerItem] = []
     for t in trackers_all:
         if _ref_agri_parcel_from_entity(t) != parcel_urn:
@@ -370,26 +419,27 @@ async def get_park_trackers(
 @router.post("/parks", status_code=status.HTTP_201_CREATED)
 async def create_park(
     body: CreateParkRequest,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Create a new solar park (AgriSolarPark entity) linked to a parcel.
     Requires context_broker_url to be set in config (Orion-LD).
     """
-    ngsi = ContextBrokerClient()
+    await ensure_subscriptions(orion.tenant_id)
     entity_id = f"urn:ngsi-ld:{ENTITY_TYPE_AGRI_SOLAR_PARK}:{uuid.uuid4().hex}"
     entity = {
         "id": entity_id,
         "type": ENTITY_TYPE_AGRI_SOLAR_PARK,
-        "name": {"type": "Property", "value": body.name},
-        "hasAgriParcel": {"type": "Relationship", "object": body.ref_agri_parcel},
+        "name": prop(body.name),
+        "hasAgriParcel": rel(body.ref_agri_parcel),
     }
-    ok = await ngsi.create_entity(tenant_id, entity)
-    if not ok:
+    try:
+        await orion.create_entity(entity)
+    except httpx.HTTPError as exc:
         raise HTTPException(
             status_code=502,
-            detail="Failed to create park in Context Broker (check context_broker_url)",
-        )
+            detail="Failed to create park in Context Broker",
+        ) from exc
     return {"park_id": entity_id, "name": body.name, "ref_agri_parcel": body.ref_agri_parcel}
 
 
@@ -397,14 +447,13 @@ async def create_park(
 async def update_tracker_algorithm(
     tracker_id: str,
     body: AlgorithmUpdate,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Set the activeAlgorithm of an AgriEnergyTracker. If body.activeAlgorithm has only "id"
     (e.g. {"id": "default:maximize"}), resolve from built-in presets and store the logic;
     otherwise store the given object in Orion.
     """
-    ngsi = ContextBrokerClient()
     algo = body.activeAlgorithm
     if set(algo.keys()) <= {"id"} and algo.get("id"):
         preset_id = algo["id"]
@@ -414,9 +463,10 @@ async def update_tracker_algorithm(
         logic = presets[preset_id]
     else:
         logic = algo
-    ok = await ngsi.update_entity_attribute(tenant_id, tracker_id, "activeAlgorithm", logic)
-    if not ok:
-        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker")
+    try:
+        await orion.append_entity_attrs(tracker_id, {"activeAlgorithm": prop(logic)})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker") from exc
     return {"status": "updated", "tracker_id": tracker_id, "activeAlgorithm": logic}
 
 
@@ -424,17 +474,17 @@ async def update_tracker_algorithm(
 async def update_tracker_signal_mapping(
     tracker_id: str,
     body: SignalMappingUpdate,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Update the signalMapping attribute of an AgriEnergyTracker in Orion-LD.
     Called by the frontend when the user saves "Configure signals".
     """
-    ngsi = ContextBrokerClient()
     payload = [item.model_dump() for item in body.signalMapping]
-    ok = await ngsi.update_entity_attribute(tenant_id, tracker_id, "signalMapping", payload)
-    if not ok:
-        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker")
+    try:
+        await orion.append_entity_attrs(tracker_id, {"signalMapping": prop(payload)})
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Failed to update tracker in Context Broker") from exc
     return {"status": "updated", "tracker_id": tracker_id, "signalMapping": payload}
 
 
@@ -536,247 +586,292 @@ async def simulate(request: SimulationRequest):
 # NGSI-LD Notification Webhook
 # =============================================================================
 
+async def _evaluate_and_actuate_tracker(
+    orion,
+    intelligence_client,
+    shadow_engine,
+    tenant_id: str,
+    tracker: dict,
+    ghi: float,
+    dni: float,
+    dhi: float,
+) -> None:
+    """Closed-loop step for a single tracker: context -> algorithm -> actuator.
+
+    Raises on corrupt input so the caller can isolate the failure (per-tracker
+    fail-safe); a healthy tracker in the same batch must still actuate.
+    """
+    tracker_id = tracker.get("id")
+    parcel_id = tracker.get("hasAgriParcel", {}).get("object", "urn:ngsi-ld:AgriParcel:Default")
+
+    # Panel parameters — SDM-aligned names with legacy fallback
+    _dim = tracker.get("panelDimension", {}).get("value", {})
+    p_width = float(
+        tracker.get("panelWidth", {}).get("value")
+        or _dim.get("width")
+        or tracker.get("width", {}).get("value", 2.0)
+    )
+    p_length = float(
+        tracker.get("panelLength", {}).get("value")
+        or _dim.get("length")
+        or tracker.get("length", {}).get("value", 4.0)
+    )
+    p_height = float(
+        tracker.get("panelHeight", {}).get("value")
+        or tracker.get("clearanceHeight", {}).get("value", 2.0)
+    )
+    p_cap = float(tracker.get("NominalPower", {}).get("value", 0) or tracker.get("capacityW", {}).get("value", 500.0))
+    # Orientation: direct attributes first, fall back to modelRotation [heading=azimuth, pitch=-tilt, roll]
+    p_tilt = float(tracker.get("tilt", {}).get("value", 0.0))
+    p_azimuth = float(tracker.get("azimuth", {}).get("value", 180.0))
+    if not p_tilt and not tracker.get("tilt"):
+        _mr = tracker.get("modelRotation", {}).get("value", [0, 0, 0]) or [0, 0, 0]
+        if isinstance(_mr, list) and len(_mr) >= 2:
+            p_azimuth = float(_mr[0]) if float(_mr[0]) != 0 or not p_azimuth else p_azimuth
+            p_tilt = -float(_mr[1])  # pitch = -tilt
+    # Handle both Point and MultiPoint location
+    _loc = tracker.get("location", {}).get("value", {})
+    if _loc.get("type") == "MultiPoint" and _loc.get("coordinates"):
+        coords = _loc["coordinates"][0]
+        lat, lon = coords[1], coords[0]
+    else:
+        lat = float(_loc.get("coordinates", [43.0, -2.0])[1])
+        lon = float(_loc.get("coordinates", [43.0, -2.0])[0])
+
+    # 2.5 Fetch linked AgriParcel for terrain data (slope/aspect)
+    parcel_slope = 0.0
+    parcel_aspect = 180.0
+    try:
+        parcel = await get_entity_or_none(orion, parcel_id)
+        if parcel:
+            parcel_slope = float(parcel.get("slope", {}).get("value", 0.0))
+            parcel_aspect = float(parcel.get("aspect", {}).get("value", 180.0))
+    except Exception:
+        pass  # parcel not found or attributes missing → use defaults
+
+    # 3. Build context for algorithm: signalMapping -> weather, tracker, sensors
+    context = {"weather": {"ghi": ghi, "dni": dni}, "tracker": {"tilt": p_tilt, "azimuth": p_azimuth}}
+    mapping_list = _parse_signal_mapping(tracker)
+    if mapping_list:
+        resolved = await _resolve_signal_mapping(orion, mapping_list)
+        if resolved:
+            nested = _context_from_flat_sensors(resolved)
+            for group, data in nested.items():
+                if isinstance(data, dict):
+                    context.setdefault(group, {}).update(data)
+                else:
+                    context[group] = data
+            ghi = context.get("weather", {}).get("ghi", ghi)
+            dni = context.get("weather", {}).get("dni", dni)
+            dhi = context.get("weather", {}).get("dhi", dhi)
+
+    # 4. Current shadow (for Intelligence) and PV solar position
+    # Detect MultiPoint geometry for array shadow with real elevations
+    _loc_val = tracker.get("location", {}).get("value", {})
+    is_multipoint = _loc_val.get("type") == "MultiPoint" and _loc_val.get("coordinates")
+    panel_positions: list = []
+    if is_multipoint:
+        panel_positions = [(c[0], c[1]) for c in _loc_val["coordinates"]]
+        elevation_svc = ElevationService(tenant_id=tenant_id)
+        elevations = await elevation_svc.get_elevations(panel_positions, parcel_id=parcel_id)
+    else:
+        elevations = None
+
+    pv_engine = PVEngine(lat, lon)
+    sim_time = datetime.utcnow()
+    pv_current = pv_engine.calculate_expected_power(
+        sim_time,
+        PVSpec(tilt=p_tilt, azimuth=p_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length),
+        ghi, dni, dhi,
+    )
+    if is_multipoint:
+        shadow_current = shadow_engine.calculate_array_shadow(
+            panel_positions=panel_positions,
+            panel_width=p_width, panel_length=p_length,
+            panel_tilt=p_tilt, panel_azimuth=p_azimuth,
+            solar_elevation=pv_current["solar_elevation"],
+            solar_azimuth=pv_current["solar_azimuth"],
+            clearance_height=p_height,
+            terrain_slope=parcel_slope,
+            terrain_aspect=parcel_aspect,
+            elevations=elevations,
+        )
+    else:
+        shadow_current = shadow_engine.calculate_shadow_polygon(
+            panel_width=p_width, panel_length=p_length,
+            panel_tilt=p_tilt, panel_azimuth=p_azimuth,
+            solar_elevation=pv_current["solar_elevation"],
+            solar_azimuth=pv_current["solar_azimuth"],
+            clearance_height=p_height,
+            terrain_slope=parcel_slope,
+            terrain_aspect=parcel_aspect,
+        )
+    shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
+
+    # 5. Call Intelligence evaluate_status; inject biology (fail-safe: empty or stress_index 0)
+    telemetry = _build_telemetry_for_intelligence(context)
+    biology = await intelligence_client.evaluate_status(
+        tenant_id=tenant_id,
+        tracker_id=tracker_id,
+        parcel_id=parcel_id,
+        timestamp=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        shadow_polygon_2d=shadow_polygon_2d,
+        telemetry=telemetry,
+    )
+    # Fail-safe: inject only empty dict; defaults belong in JSON Logic (var fallback).
+    context["biology"] = biology if biology else {}
+
+    # 6. Evaluate algorithm and resolve orientation
+    active_algo = tracker.get("activeAlgorithm", {}).get("value", AlgorithmEngine.default_algorithm())
+    algo_result = AlgorithmEngine.evaluate_rule(active_algo, context)
+    _rota = tracker.get("rotationAxis")
+    rotation_axis = (_rota.get("value") if isinstance(_rota, dict) else _rota) if _rota else None
+    if rotation_axis is not None and not isinstance(rotation_axis, str):
+        rotation_axis = None
+    new_target_tilt, new_target_azimuth = AlgorithmEngine.resolve_orientation(
+        algo_result, p_tilt, p_azimuth, rotation_axis
+    )
+
+    # 6.5 Idempotence guard: /notify writes orientation back to the tracker, which
+    # re-notifies us. If the algorithm wants the orientation we already have, skip
+    # ALL writes (digital twin, Orion attrs, MQTT) so the loop converges silently.
+    if (
+        abs(new_target_tilt - p_tilt) <= TILT_TOLERANCE_DEG
+        and _angular_distance_deg(new_target_azimuth, p_azimuth) <= TILT_TOLERANCE_DEG
+    ):
+        logger.info(
+            "Tracker %s: orientation unchanged (tilt=%.2f azimuth=%.2f), skipping",
+            tracker_id, p_tilt, p_azimuth,
+        )
+        return
+
+    # 7. Digital twin: PV + shadow for the *new* orientation (logging and consistency)
+    spec = PVSpec(tilt=new_target_tilt, azimuth=new_target_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length)
+    pv_res = pv_engine.calculate_expected_power(sim_time, spec, ghi, dni, dhi)
+    if is_multipoint:
+        shadow_res = shadow_engine.calculate_array_shadow(
+            panel_positions=panel_positions,
+            panel_width=p_width, panel_length=p_length,
+            panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
+            solar_elevation=pv_res["solar_elevation"],
+            solar_azimuth=pv_res["solar_azimuth"],
+            clearance_height=p_height,
+            terrain_slope=parcel_slope,
+            terrain_aspect=parcel_aspect,
+            elevations=elevations,
+        )
+    else:
+        shadow_res = shadow_engine.calculate_shadow_polygon(
+            panel_width=p_width, panel_length=p_length,
+            panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
+            solar_elevation=pv_res["solar_elevation"],
+            solar_azimuth=pv_res["solar_azimuth"],
+            clearance_height=p_height,
+            terrain_slope=parcel_slope,
+            terrain_aspect=parcel_aspect,
+        )
+    stress_index = (context.get("biology") or {}).get("stress_index") or 0.0
+
+    logger.info(
+        "Tracker %s: target tilt=%.1f azimuth=%.1f -> shadow=%.2fm2 stress=%.2f",
+        tracker_id, new_target_tilt, new_target_azimuth, shadow_res["area_m2"], stress_index
+    )
+
+    # 8. Update Context Broker. Split intent (target*) from state (tilt/azimuth/
+    # modelRotation) so a failed actuation never makes the twin claim the panel
+    # moved (which would freeze the idempotence guard forever).
+    intent_attrs = {
+        "targetTilt": prop(new_target_tilt),
+        "targetAzimuth": prop(new_target_azimuth),
+    }
+    state_attrs = {
+        "tilt": prop(new_target_tilt),
+        "azimuth": prop(new_target_azimuth),
+        # Cesium headingPitchRoll: heading=azimuth, pitch=-tilt (deg), roll=0
+        "modelRotation": prop([new_target_azimuth, -new_target_tilt, 0.0]),
+    }
+
+    ref_device = tracker.get("refDevice", {}).get("value") or tracker.get("refDevice")
+    has_device = isinstance(ref_device, str) and bool(ref_device.strip())
+
+    if not has_device:
+        # Digital-twin-only tracker: the Orion write IS the actuation.
+        await orion.append_entity_attrs(tracker_id, {**intent_attrs, **state_attrs})
+        return
+
+    # Physical tracker: record intent first, command the device, and only then
+    # update the twin state. If MQTT fails, tilt/azimuth keep telling the truth
+    # (panel did not move) so the idempotence guard lets the next notification
+    # retry the command instead of suppressing it forever.
+    await orion.append_entity_attrs(tracker_id, intent_attrs)
+    device_client = DeviceCommandClient()
+    sent = await device_client.send_tracker_command(
+        tenant_id, ref_device.strip(), new_target_tilt, new_target_azimuth
+    )
+    if not sent:
+        raise RuntimeError(
+            f"MQTT command failed for tracker {tracker_id} (device {ref_device.strip()})"
+        )
+    await orion.append_entity_attrs(tracker_id, state_attrs)
+
+
 @router.post("/notify", status_code=status.HTTP_200_OK)
 async def process_ngsild_notification(
     payload: NGSILDSubscriptionPayload,
-    tenant_id: str = Depends(get_tenant_id)
+    tenant_id: str = Depends(get_notification_tenant),
 ):
-    """
-    Webhook para recibir notificaciones (suscripciones) de Orion-LD.
-    Se dispara cuando cambian entidades: WeatherObserved, AgriEnergyTracker, PhotovoltaicInstallation.
-    Implementa el lazo cerrado: sensor -> algoritmo -> actuador (MQTT vía DeviceCommandClient).
+    """Orion-LD subscription webhook. Closed loop: sensor -> algorithm -> actuator.
 
-    DeviceProfile para actuador físico:
-      - Crear un DeviceProfile con entity_type = PhotovoltaicInstallation
-      - Mapear los atributos del dispositivo: tilt, azimuth, targetTilt, targetAzimuth
-      - El DeviceCommandClient enviará comandos MQTT tipo "agrienergy.tracker.set"
-        con payload {targetTilt, targetAzimuth} al tópico configurado en el perfil.
-      - El tracker físico debe escuchar ese tópico y actuar sobre los motores.
-      - Para publicar telemetría (tilt/azimuth actual), usar IoT Agent JSON → Orion-LD.
+    Auth: NO JWT — Orion cannot send one. Tenant comes from NGSILD-Tenant /
+    Fiware-Service (telemetry-worker pattern); cluster-internal by NetworkPolicy,
+    public path is fronted by api-gateway JWT.
 
-    Subscription Orion-LD requerida:
-      La suscripción debe cubrir los tipos: WeatherObserved, AgriEnergyTracker,
-      y PhotovoltaicInstallation. Si no existe, crearla vía POST /ngsi-ld/v1/subscriptions
-      con un payload {"type": "Subscription", "entities": [{"type": "WeatherObserved"},
-      {"type": "AgriEnergyTracker"}, {"type": "PhotovoltaicInstallation"}],
-      "notification": {"endpoint": {"uri": "http://agrienergy-backend:8000/api/agrienergy/notify"}}}.
-      Observación: el endpoint debe ser accesible desde Orion-LD (nombre de servicio K8s).
+    Subscription Orion-LD requerida: debe cubrir WeatherObserved, AgriEnergyTracker
+    y PhotovoltaicInstallation, con endpoint accesible desde Orion-LD (nombre de
+    servicio K8s). El DeviceCommandClient publica comandos MQTT al refDevice del
+    tracker; la telemetría real (tilt/azimuth) vuelve vía IoT Agent JSON → Orion-LD.
     """
-    logger.info(f"Received NGSI-LD notification for subscription {payload.subscriptionId}")
-    
-    ngsi_client = ContextBrokerClient()
+    logger.info("NGSI-LD notification %s (tenant=%s)", payload.subscriptionId, tenant_id)
+    orion = get_orion(tenant_id)
     intelligence_client = IntelligenceClient()
     shadow_engine = ShadowEngine()
-    
-    for entity in payload.data:
-        entity_id = entity.get("id")
-        entity_type = entity.get("type", "")
-        
-        logger.info(f"Processing entity {entity_id} of type {entity_type}")
-        
-        # 1. Extraer clima del evento si es WeatherObserved (idealmente usaríamos el evento para extraer valores)
-        ghi = 800.0  # Placeholder si el evento no lo trae directamente
-        dni = 600.0
-        dhi = 200.0
-        if entity_type == "WeatherObserved":
-            if "illuminance" in entity:
-                ghi = float(entity["illuminance"].get("value", ghi))
-            elif "solarRadiation" in entity:
-                 ghi = float(entity["solarRadiation"].get("value", ghi))
-                 
-            # Buscamos los trackers afectados y recalculamos (Lazo cerrado Reactivo)
-            trackers = []
-            tracker_results = await ngsi_client.get_entities_by_type(tenant_id, "AgriEnergyTracker")
-            trackers.extend(tracker_results)
-            pv_results = await ngsi_client.get_entities_by_type(tenant_id, "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation")
-            trackers.extend(pv_results)
-        elif entity_type in ("AgriEnergyTracker", "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"):
-            trackers = [entity] # El propio entity es el tracker/PV installation
-        else:
-            continue
-            
-        # 2. Bucle de Evaluación
-        for tracker in trackers:
-            tracker_id = tracker.get("id")
-            parcel_id = tracker.get("hasAgriParcel", {}).get("object", "urn:ngsi-ld:AgriParcel:Default")
-            
-            # Panel parameters — SDM-aligned names with legacy fallback
-            _dim = tracker.get("panelDimension", {}).get("value", {})
-            p_width = float(
-                tracker.get("panelWidth", {}).get("value")
-                or _dim.get("width")
-                or tracker.get("width", {}).get("value", 2.0)
-            )
-            p_length = float(
-                tracker.get("panelLength", {}).get("value")
-                or _dim.get("length")
-                or tracker.get("length", {}).get("value", 4.0)
-            )
-            p_height = float(
-                tracker.get("panelHeight", {}).get("value")
-                or tracker.get("clearanceHeight", {}).get("value", 2.0)
-            )
-            p_cap = float(tracker.get("NominalPower", {}).get("value", 0) or tracker.get("capacityW", {}).get("value", 500.0))
-            # Orientation: direct attributes first, fall back to modelRotation [heading=azimuth, pitch=-tilt, roll]
-            p_tilt = float(tracker.get("tilt", {}).get("value", 0.0))
-            p_azimuth = float(tracker.get("azimuth", {}).get("value", 180.0))
-            if not p_tilt and not tracker.get("tilt"):
-                _mr = tracker.get("modelRotation", {}).get("value", [0, 0, 0]) or [0, 0, 0]
-                if isinstance(_mr, list) and len(_mr) >= 2:
-                    p_azimuth = float(_mr[0]) if float(_mr[0]) != 0 or not p_azimuth else p_azimuth
-                    p_tilt = -float(_mr[1])  # pitch = -tilt
-            # Handle both Point and MultiPoint location
-            _loc = tracker.get("location", {}).get("value", {})
-            if _loc.get("type") == "MultiPoint" and _loc.get("coordinates"):
-                coords = _loc["coordinates"][0]
-                lat, lon = coords[1], coords[0]
+
+    processed, errors = 0, 0
+    try:
+        for entity in payload.data:
+            entity_type = entity.get("type", "")
+
+            ghi, dni, dhi = 800.0, 600.0, 200.0  # documented fallback (see suite SMELL test)
+            if entity_type == "WeatherObserved":
+                if "illuminance" in entity:
+                    ghi = float(entity["illuminance"].get("value", ghi))
+                elif "solarRadiation" in entity:
+                    ghi = float(entity["solarRadiation"].get("value", ghi))
+                trackers = list(await orion.query_entities(type="AgriEnergyTracker", limit=500))
+                trackers += await orion.query_entities(
+                    type="https://saref.etsi.org/saref4agri/PhotovoltaicInstallation", limit=500)
+            elif entity_type in ("AgriEnergyTracker",
+                                 "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"):
+                trackers = [entity]
             else:
-                lat = float(_loc.get("coordinates", [43.0, -2.0])[1])
-                lon = float(_loc.get("coordinates", [43.0, -2.0])[0])
+                continue
 
-            # 2.5 Fetch linked AgriParcel for terrain data (slope/aspect)
-            parcel_slope = 0.0
-            parcel_aspect = 180.0
-            try:
-                parcel = await ngsi_client.get_entity(tenant_id, parcel_id)
-                parcel_slope = float(parcel.get("slope", {}).get("value", 0.0))
-                parcel_aspect = float(parcel.get("aspect", {}).get("value", 180.0))
-            except Exception:
-                pass  # parcel not found or attributes missing → use defaults
+            for tracker in trackers:
+                try:
+                    await _evaluate_and_actuate_tracker(
+                        orion, intelligence_client, shadow_engine,
+                        tenant_id, tracker, ghi, dni, dhi,
+                    )
+                    processed += 1
+                except Exception:
+                    errors += 1
+                    logger.exception(
+                        "notify: tracker %s failed (tenant=%s)", tracker.get("id"), tenant_id)
+    finally:
+        await orion.close()
 
-            # 3. Build context for algorithm: signalMapping -> weather, tracker, sensors
-            context = {"weather": {"ghi": ghi, "dni": dni}, "tracker": {"tilt": p_tilt, "azimuth": p_azimuth}}
-            mapping_list = _parse_signal_mapping(tracker)
-            if mapping_list:
-                resolved = await _resolve_signal_mapping(ngsi_client, tenant_id, mapping_list)
-                if resolved:
-                    nested = _context_from_flat_sensors(resolved)
-                    for group, data in nested.items():
-                        if isinstance(data, dict):
-                            context.setdefault(group, {}).update(data)
-                        else:
-                            context[group] = data
-                    ghi = context.get("weather", {}).get("ghi", ghi)
-                    dni = context.get("weather", {}).get("dni", dni)
-                    dhi = context.get("weather", {}).get("dhi", dhi)
-
-            # 4. Current shadow (for Intelligence) and PV solar position
-            # Detect MultiPoint geometry for array shadow with real elevations
-            _loc_val = tracker.get("location", {}).get("value", {})
-            is_multipoint = _loc_val.get("type") == "MultiPoint" and _loc_val.get("coordinates")
-            panel_positions: list = []
-            if is_multipoint:
-                panel_positions = [(c[0], c[1]) for c in _loc_val["coordinates"]]
-                elevation_svc = ElevationService(tenant_id=tenant_id)
-                elevations = await elevation_svc.get_elevations(panel_positions, parcel_id=parcel_id)
-            else:
-                elevations = None
-
-            pv_engine = PVEngine(lat, lon)
-            sim_time = datetime.utcnow()
-            pv_current = pv_engine.calculate_expected_power(
-                sim_time,
-                PVSpec(tilt=p_tilt, azimuth=p_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length),
-                ghi, dni, dhi,
-            )
-            if is_multipoint:
-                shadow_current = shadow_engine.calculate_array_shadow(
-                    panel_positions=panel_positions,
-                    panel_width=p_width, panel_length=p_length,
-                    panel_tilt=p_tilt, panel_azimuth=p_azimuth,
-                    solar_elevation=pv_current["solar_elevation"],
-                    solar_azimuth=pv_current["solar_azimuth"],
-                    clearance_height=p_height,
-                    terrain_slope=parcel_slope,
-                    terrain_aspect=parcel_aspect,
-                    elevations=elevations,
-                )
-            else:
-                shadow_current = shadow_engine.calculate_shadow_polygon(
-                    panel_width=p_width, panel_length=p_length,
-                    panel_tilt=p_tilt, panel_azimuth=p_azimuth,
-                    solar_elevation=pv_current["solar_elevation"],
-                    solar_azimuth=pv_current["solar_azimuth"],
-                    clearance_height=p_height,
-                    terrain_slope=parcel_slope,
-                    terrain_aspect=parcel_aspect,
-                )
-            shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
-
-            # 5. Call Intelligence evaluate_status; inject biology (fail-safe: empty or stress_index 0)
-            telemetry = _build_telemetry_for_intelligence(context)
-            biology = await intelligence_client.evaluate_status(
-                tenant_id=tenant_id,
-                tracker_id=tracker_id,
-                parcel_id=parcel_id,
-                timestamp=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-                shadow_polygon_2d=shadow_polygon_2d,
-                telemetry=telemetry,
-            )
-            # Fail-safe: inject only empty dict; defaults belong in JSON Logic (var fallback).
-            context["biology"] = biology if biology else {}
-
-            # 6. Evaluate algorithm and resolve orientation
-            active_algo = tracker.get("activeAlgorithm", {}).get("value", AlgorithmEngine.default_algorithm())
-            algo_result = AlgorithmEngine.evaluate_rule(active_algo, context)
-            _rota = tracker.get("rotationAxis")
-            rotation_axis = (_rota.get("value") if isinstance(_rota, dict) else _rota) if _rota else None
-            if rotation_axis is not None and not isinstance(rotation_axis, str):
-                rotation_axis = None
-            new_target_tilt, new_target_azimuth = AlgorithmEngine.resolve_orientation(
-                algo_result, p_tilt, p_azimuth, rotation_axis
-            )
-
-            # 7. Digital twin: PV + shadow for the *new* orientation (logging and consistency)
-            spec = PVSpec(tilt=new_target_tilt, azimuth=new_target_azimuth, capacity_w=p_cap, module_area_m2=p_width * p_length)
-            pv_res = pv_engine.calculate_expected_power(sim_time, spec, ghi, dni, dhi)
-            if is_multipoint:
-                shadow_res = shadow_engine.calculate_array_shadow(
-                    panel_positions=panel_positions,
-                    panel_width=p_width, panel_length=p_length,
-                    panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
-                    solar_elevation=pv_res["solar_elevation"],
-                    solar_azimuth=pv_res["solar_azimuth"],
-                    clearance_height=p_height,
-                    terrain_slope=parcel_slope,
-                    terrain_aspect=parcel_aspect,
-                    elevations=elevations,
-                )
-            else:
-                shadow_res = shadow_engine.calculate_shadow_polygon(
-                    panel_width=p_width, panel_length=p_length,
-                    panel_tilt=new_target_tilt, panel_azimuth=new_target_azimuth,
-                    solar_elevation=pv_res["solar_elevation"],
-                    solar_azimuth=pv_res["solar_azimuth"],
-                    clearance_height=p_height,
-                    terrain_slope=parcel_slope,
-                    terrain_aspect=parcel_aspect,
-                )
-            stress_index = (context.get("biology") or {}).get("stress_index") or 0.0
-
-            logger.info(
-                "Tracker %s: target tilt=%.1f azimuth=%.1f -> shadow=%.2fm2 stress=%.2f",
-                tracker_id, new_target_tilt, new_target_azimuth, shadow_res["area_m2"], stress_index
-            )
-
-            # 8. Update Context Broker: targetTilt, targetAzimuth, tilt, azimuth, modelRotation
-            await ngsi_client.update_entity_attribute(tenant_id, tracker_id, "targetTilt", new_target_tilt)
-            await ngsi_client.update_entity_attribute(tenant_id, tracker_id, "targetAzimuth", new_target_azimuth)
-            await ngsi_client.update_entity_attribute(tenant_id, tracker_id, "tilt", new_target_tilt)
-            await ngsi_client.update_entity_attribute(tenant_id, tracker_id, "azimuth", new_target_azimuth)
-            # Cesium headingPitchRoll: heading=azimuth, pitch=-tilt (deg), roll=0
-            model_rotation = [new_target_azimuth, -new_target_tilt, 0.0]
-            await ngsi_client.update_entity_attribute(tenant_id, tracker_id, "modelRotation", model_rotation)
-
-            # 7. Send MQTT command to physical device if refDevice is set
-            ref_device = tracker.get("refDevice", {}).get("value") or tracker.get("refDevice")
-            if isinstance(ref_device, str) and ref_device.strip():
-                device_client = DeviceCommandClient()
-                await device_client.send_tracker_command(
-                    tenant_id, ref_device.strip(), new_target_tilt, new_target_azimuth
-                )
-
-    return {"status": "processed", "entities": len(payload.data)}
+    return {"status": "processed", "entities": len(payload.data),
+            "trackers": processed, "errors": errors}
 
 
 # =============================================================================

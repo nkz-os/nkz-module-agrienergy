@@ -16,6 +16,12 @@ class AlgorithmEngine:
     La regla puede devolver:
     - Un número → se usa como targetTilt; azimuth se mantiene.
     - Un objeto {"tilt": n, "azimuth": m} → se usan ambos (claves opcionales).
+
+    LIMITACIÓN (json-logic): un dict de UNA sola clave dentro de la regla
+    (p.ej. {"tilt": 45}) se interpreta como operador, no como dato → la
+    evaluación falla y se mantiene la orientación actual (fail-safe). Para
+    devolver solo tilt desde una regla, usar {"tilt": 45, "azimuth": null}.
+    Pineado en tests/test_algorithm_engine.py::test_partial_dict_tilt_only.
     """
 
     @staticmethod
