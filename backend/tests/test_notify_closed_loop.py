@@ -85,6 +85,11 @@ class TestClosedLoop:
         notify(anon_client, [weather_event()])
         assert FakeDeviceCommand.commands == [
             {"tenant": TENANT, "device": "dev-1", "tilt": 30.0, "azimuth": 170.0}]
+        # Physical tracker -> TWO appends: intent first, state last
+        appends = [a for _, eid, a in orion_world.appended if eid == T1]
+        assert len(appends) == 2
+        assert set(appends[0].keys()) == {"targetTilt", "targetAzimuth"}
+        assert set(appends[-1].keys()) == {"tilt", "azimuth", "modelRotation"}
 
     def test_direct_tracker_notification(self, anon_client, orion_world):
         tracker = self._seed(orion_world)
@@ -115,6 +120,8 @@ class TestClosedLoop:
         r = notify(anon_client, [weather_event()])
         assert r.status_code == 200
         assert any(eid == T1 for _, eid, _ in orion_world.appended)  # good one actuated
+        assert r.json()["errors"] == 1
+        assert r.json()["trackers"] == 1
 
     def test_rotation_axis_locks_azimuth(self, anon_client, orion_world):
         self._seed(orion_world, rotationAxis={"type": "Property", "value": "north_south"})
@@ -122,6 +129,39 @@ class TestClosedLoop:
         _, _, attrs = orion_world.appended[-1]
         assert attrs["targetTilt"]["value"] == 30.0
         assert attrs["targetAzimuth"]["value"] == 180.0  # locked to current
+
+    def test_mqtt_failure_counts_error_and_keeps_twin_truthful(self, anon_client, orion_world):
+        FakeDeviceCommand.fail = True
+        self._seed(orion_world, refDevice={"type": "Property", "value": "dev-1"})
+        r = notify(anon_client, [weather_event()])
+        assert r.status_code == 200
+        assert r.json()["errors"] == 1
+        # Intent recorded, but state NOT updated: the panel did not move.
+        assert len(orion_world.appended) == 1
+        _, _, attrs = orion_world.appended[0]
+        assert set(attrs.keys()) == {"targetTilt", "targetAzimuth"}
+        assert FakeDeviceCommand.commands == []
+
+    def test_mqtt_failure_is_retried_on_next_notification(self, anon_client, orion_world):
+        FakeDeviceCommand.fail = True
+        self._seed(orion_world, refDevice={"type": "Property", "value": "dev-1"})
+        notify(anon_client, [weather_event()])
+        # Device comes back: tilt still reads the old value, guard lets it retry
+        FakeDeviceCommand.fail = False
+        r = notify(anon_client, [weather_event()])
+        assert r.json()["errors"] == 0
+        assert FakeDeviceCommand.commands and FakeDeviceCommand.commands[-1]["tilt"] == 30.0
+        # State now updated
+        assert any(set(a.keys()) == {"tilt", "azimuth", "modelRotation"}
+                   for _, _, a in orion_world.appended)
+
+    def test_azimuth_wraparound_treated_as_unchanged(self, anon_client, orion_world):
+        # 359.995 vs 0.0 is 0.005 degrees apart circularly -> no writes
+        rule = {"if": [True, {"tilt": 10, "azimuth": 359.995}, 0]}
+        self._seed(orion_world, activeAlgorithm={"type": "Property", "value": rule},
+                   azimuth={"type": "Property", "value": 0.0})
+        notify(anon_client, [weather_event()])
+        assert orion_world.appended == []
 
 
 class TestSDMExtraction:

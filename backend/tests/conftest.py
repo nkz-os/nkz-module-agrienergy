@@ -115,8 +115,11 @@ class FakeIntelligence:
 
 class FakeDeviceCommand:
     commands: list = []
+    fail: bool = False  # simulate MQTT publish failure (client returns False)
 
     async def send_tracker_command(self, tenant_id, device_id, tilt, azimuth=180.0):
+        if FakeDeviceCommand.fail:
+            return False
         FakeDeviceCommand.commands.append(
             {"tenant": tenant_id, "device": device_id, "tilt": tilt, "azimuth": azimuth}
         )
@@ -222,6 +225,7 @@ def orion_world(monkeypatch):
     FakeIntelligence.response = {}
     FakeIntelligence.calls = []
     FakeDeviceCommand.commands = []
+    FakeDeviceCommand.fail = False
     FakeElevation.elevations = None
     yield world
 

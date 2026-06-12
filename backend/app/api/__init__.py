@@ -53,6 +53,11 @@ router = APIRouter(tags=["AgriEnergy Orchestrator"])
 TILT_TOLERANCE_DEG = 0.01
 
 
+def _angular_distance_deg(a: float, b: float) -> float:
+    """Shortest angular distance in degrees (wraps at 360)."""
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
 async def orion_dep(tenant_id: str = Depends(get_tenant_id)):
     """Per-request, tenant-scoped OrionClient; closed after the response.
 
@@ -729,7 +734,7 @@ async def _evaluate_and_actuate_tracker(
     # ALL writes (digital twin, Orion attrs, MQTT) so the loop converges silently.
     if (
         abs(new_target_tilt - p_tilt) <= TILT_TOLERANCE_DEG
-        and abs(new_target_azimuth - p_azimuth) <= TILT_TOLERANCE_DEG
+        and _angular_distance_deg(new_target_azimuth, p_azimuth) <= TILT_TOLERANCE_DEG
     ):
         logger.info(
             "Tracker %s: orientation unchanged (tilt=%.2f azimuth=%.2f), skipping",
@@ -769,24 +774,42 @@ async def _evaluate_and_actuate_tracker(
         tracker_id, new_target_tilt, new_target_azimuth, shadow_res["area_m2"], stress_index
     )
 
-    # 8. Update Context Broker in ONE batched append (POST /attrs creates attrs
-    # on fresh trackers): targetTilt, targetAzimuth, tilt, azimuth, modelRotation.
-    # Cesium headingPitchRoll: heading=azimuth, pitch=-tilt (deg), roll=0
-    await orion.append_entity_attrs(tracker_id, {
+    # 8. Update Context Broker. Split intent (target*) from state (tilt/azimuth/
+    # modelRotation) so a failed actuation never makes the twin claim the panel
+    # moved (which would freeze the idempotence guard forever).
+    intent_attrs = {
         "targetTilt": prop(new_target_tilt),
         "targetAzimuth": prop(new_target_azimuth),
+    }
+    state_attrs = {
         "tilt": prop(new_target_tilt),
         "azimuth": prop(new_target_azimuth),
+        # Cesium headingPitchRoll: heading=azimuth, pitch=-tilt (deg), roll=0
         "modelRotation": prop([new_target_azimuth, -new_target_tilt, 0.0]),
-    })
+    }
 
-    # 9. Send MQTT command to physical device if refDevice is set
     ref_device = tracker.get("refDevice", {}).get("value") or tracker.get("refDevice")
-    if isinstance(ref_device, str) and ref_device.strip():
-        device_client = DeviceCommandClient()
-        await device_client.send_tracker_command(
-            tenant_id, ref_device.strip(), new_target_tilt, new_target_azimuth
+    has_device = isinstance(ref_device, str) and bool(ref_device.strip())
+
+    if not has_device:
+        # Digital-twin-only tracker: the Orion write IS the actuation.
+        await orion.append_entity_attrs(tracker_id, {**intent_attrs, **state_attrs})
+        return
+
+    # Physical tracker: record intent first, command the device, and only then
+    # update the twin state. If MQTT fails, tilt/azimuth keep telling the truth
+    # (panel did not move) so the idempotence guard lets the next notification
+    # retry the command instead of suppressing it forever.
+    await orion.append_entity_attrs(tracker_id, intent_attrs)
+    device_client = DeviceCommandClient()
+    sent = await device_client.send_tracker_command(
+        tenant_id, ref_device.strip(), new_target_tilt, new_target_azimuth
+    )
+    if not sent:
+        raise RuntimeError(
+            f"MQTT command failed for tracker {tracker_id} (device {ref_device.strip()})"
         )
+    await orion.append_entity_attrs(tracker_id, state_attrs)
 
 
 @router.post("/notify", status_code=status.HTTP_200_OK)
