@@ -44,6 +44,14 @@ class TestSinglePanel:
         ys = [p[1] for p in res["polygon"]]
         assert max(ys) > 0
 
+    def test_sun_east_casts_shadow_west(self):
+        # Sun in the east (az=90), low elevation -> shadow extends west (-x)
+        res = shadow(solar_elevation=20.0, solar_azimuth=90.0)
+        xs = [p[0] for p in res["polygon"]]
+        assert min(xs) < 0
+        # centroid clearly west of the panel
+        assert sum(xs) / len(xs) < -1.0
+
     def test_tilt_reduces_horizontal_footprint_at_zenith(self):
         flat = shadow(panel_tilt=0.0)["area_m2"]
         tilted = shadow(panel_tilt=45.0)["area_m2"]

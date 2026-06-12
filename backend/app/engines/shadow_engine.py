@@ -114,9 +114,11 @@ class ShadowEngine:
         # Crear polígono 2D plano (Shapely)
         poly = Polygon(projected).convex_hull
 
-        if poly.is_empty or poly.geom_type != "Polygon":
+        if poly.is_empty or poly.geom_type != "Polygon" or poly.area < 1e-9:
             # Collinear projection (e.g. vertical panel under zenith sun):
-            # degenerate shadow with no area.
+            # degenerate shadow with no area. Float noise in the rotation
+            # matrices can yield a sliver Polygon instead of a LineString,
+            # hence the area epsilon.
             return {"area_m2": 0.0, "polygon": []}
 
         return {
@@ -321,7 +323,11 @@ class ShadowEngine:
             y = (lat - ref_lat2) * m_per_deg_lat
             centers_m.append((x, y))
 
-        # Panel vertical span: top edge height above ground
+        # Panel vertical span: top edge height above ground.
+        # panel_azimuth is intentionally unused: the inter-row top-edge model
+        # is azimuth-independent (cast height depends only on tilt and sun).
+        # ASSUMPTION: azimuth-independent inter-row shading is acceptable for
+        # this module's accuracy target — confirm before refining.
         tilt_rad = np.radians(panel_tilt)
         panel_top_z = clearance_height + panel_width * abs(np.sin(tilt_rad))
         panel_bottom_z = clearance_height
