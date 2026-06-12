@@ -84,7 +84,7 @@ class FakeOrionClient:
     async def query_subscriptions(self, limit=100):
         if self.world.fail_all:
             raise _http_error(503, "subs")
-        return self.world.subscriptions
+        return list(self.world.subscriptions)
 
     async def create_subscription(self, subscription: dict):
         if self.world.fail_all:
