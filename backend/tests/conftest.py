@@ -214,11 +214,7 @@ def orion_world(monkeypatch):
         return FakeOrionClient(world, tenant_id)
 
     # app.api imports get_orion by name -> patch in the consumer namespace.
-    # raising=False: targets appear in later tasks (adapter, subscriptions).
-    monkeypatch.setattr("app.api.get_orion", fake_get_orion, raising=False)
-    monkeypatch.setattr(
-        "app.services.subscriptions.get_orion", fake_get_orion, raising=False
-    )
+    monkeypatch.setattr("app.api.get_orion", fake_get_orion)
 
     import nkz_platform_sdk.subscriptions as sdk_subs
     monkeypatch.setattr(
