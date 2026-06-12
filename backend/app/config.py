@@ -29,7 +29,10 @@ class Settings(BaseSettings):
     # Service-to-service authentication
     module_management_key: str = ""
 
-    # Context Broker (Orion-LD) for creating entities (e.g. AgriSolarPark). If empty, create_entity is no-op.
+    # Context Broker (Orion-LD) base URL (env CONTEXT_BROKER_URL; legacy /ngsi-ld/v1
+    # suffix is stripped by the adapter). If empty, the SDK falls back to ORION_LD_URL
+    # or the in-cluster default http://orion-ld-service:1026 — REST I/O still works,
+    # but ensure_subscriptions() skips registration (see services/subscriptions.py).
     context_broker_url: str = ""  # e.g. http://orion-ld:1026/ngsi-ld/v1
 
     # NGSI-LD @context URL (set via CONTEXT_URL env var in K8s). Used in Link header
