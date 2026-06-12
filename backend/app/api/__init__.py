@@ -44,6 +44,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["AgriEnergy Orchestrator"])
 
 
+async def orion_dep(tenant_id: str = Depends(get_tenant_id)):
+    """Per-request, tenant-scoped OrionClient; closed after the response.
+
+    Note: get_orion is resolved at call time so tests can monkeypatch app.api.get_orion.
+    """
+    orion = get_orion(tenant_id)
+    try:
+        yield orion
+    finally:
+        await orion.close()
+
+
 def _get_float_attr(entity: dict, key: str, default: float = 0.0) -> float:
     """Extract float from NGSI-LD entity attribute (Property with value)."""
     attr = entity.get(key)
@@ -97,7 +109,7 @@ async def _resolve_signal_mapping(
                 continue
             val = _get_float_attr(entity, attr_name, 0.0)
             result[ctx_key] = val
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.debug("Resolve signal %s from %s: %s", ctx_key, entity_id, e)
     return result
 
@@ -193,13 +205,12 @@ def _entity_name(entity: dict) -> str:
 @router.get("/status", response_model=TrackerStatusResponse)
 async def get_tracker_status(
     tracker_id: str = Query(..., description="AgriEnergyTracker entity ID"),
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Return instant values for a tracker: orientation, power, storage, mapped sensors.
     Used by the frontend panel and to drive Cesium GLB orientation.
     """
-    orion = get_orion(tenant_id)
     try:
         tracker = await get_entity_or_none(orion, tracker_id)
     except httpx.HTTPError as exc:
@@ -246,7 +257,7 @@ DEFAULT_SIGNAL_ENTITY_TYPES = ("WeatherObserved", "AgriSensor")
 
 @router.get("/signal-sources", response_model=SignalSourcesResponse)
 async def get_signal_sources(
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
     entity_types: str = Query(
         default=",".join(DEFAULT_SIGNAL_ENTITY_TYPES),
         description="Comma-separated NGSI-LD entity types (e.g. WeatherObserved,AgriSensor)",
@@ -256,7 +267,6 @@ async def get_signal_sources(
     List entities that can be used as signal sources for algorithm context.
     Returns entity id, name, type, and numeric attributes (for dropdowns in Configure signals UI).
     """
-    orion = get_orion(tenant_id)
     types_list = [t.strip() for t in entity_types.split(",") if t.strip()]
     if not types_list:
         types_list = list(DEFAULT_SIGNAL_ENTITY_TYPES)
@@ -317,9 +327,8 @@ def _ref_agri_parcel_from_entity(entity: dict) -> str | None:
 
 
 @router.get("/parcels", response_model=ParcelsResponse)
-async def get_parcels(tenant_id: str = Depends(get_tenant_id)):
+async def get_parcels(orion=Depends(orion_dep)):
     """List parcels (AgriParcel) for dropdown when creating a solar park."""
-    orion = get_orion(tenant_id)
     try:
         entities = await orion.query_entities(type="AgriParcel", limit=500)
     except httpx.HTTPError as exc:
@@ -331,13 +340,12 @@ async def get_parcels(tenant_id: str = Depends(get_tenant_id)):
 
 @router.get("/parks", response_model=ParksResponse)
 async def get_parks(
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     List all solar parks (AgriSolarPark entities). Each park has hasAgriParcel;
     trackers are matched by hasAgriParcel so we include tracker_count and tracker_ids.
     """
-    orion = get_orion(tenant_id)
     try:
         parks_raw = await orion.query_entities(type=ENTITY_TYPE_AGRI_SOLAR_PARK, limit=500)
         trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
@@ -374,8 +382,8 @@ async def get_parks(
             parcel_entity = await get_entity_or_none(orion, parcel_urn)
             if parcel_entity:
                 parcel_name = _entity_name(parcel_entity)
-        except Exception:
-            pass
+        except httpx.HTTPError:
+            logger.debug("Parcel name lookup failed for %s", parcel_urn)
         parks.append(
             ParkSummary(
                 park_id=park_id,
@@ -392,10 +400,9 @@ async def get_parks(
 @router.get("/parks/{park_id}/trackers")
 async def get_park_trackers(
     park_id: str,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """List trackers that belong to this park (same hasAgriParcel as the park)."""
-    orion = get_orion(tenant_id)
     try:
         park = await get_entity_or_none(orion, park_id)
     except httpx.HTTPError as exc:
@@ -420,13 +427,12 @@ async def get_park_trackers(
 @router.post("/parks", status_code=status.HTTP_201_CREATED)
 async def create_park(
     body: CreateParkRequest,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Create a new solar park (AgriSolarPark entity) linked to a parcel.
     Requires context_broker_url to be set in config (Orion-LD).
     """
-    orion = get_orion(tenant_id)
     entity_id = f"urn:ngsi-ld:{ENTITY_TYPE_AGRI_SOLAR_PARK}:{uuid.uuid4().hex}"
     entity = {
         "id": entity_id,
@@ -448,14 +454,13 @@ async def create_park(
 async def update_tracker_algorithm(
     tracker_id: str,
     body: AlgorithmUpdate,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Set the activeAlgorithm of an AgriEnergyTracker. If body.activeAlgorithm has only "id"
     (e.g. {"id": "default:maximize"}), resolve from built-in presets and store the logic;
     otherwise store the given object in Orion.
     """
-    orion = get_orion(tenant_id)
     algo = body.activeAlgorithm
     if set(algo.keys()) <= {"id"} and algo.get("id"):
         preset_id = algo["id"]
@@ -476,13 +481,12 @@ async def update_tracker_algorithm(
 async def update_tracker_signal_mapping(
     tracker_id: str,
     body: SignalMappingUpdate,
-    tenant_id: str = Depends(get_tenant_id),
+    orion=Depends(orion_dep),
 ):
     """
     Update the signalMapping attribute of an AgriEnergyTracker in Orion-LD.
     Called by the frontend when the user saves "Configure signals".
     """
-    orion = get_orion(tenant_id)
     payload = [item.model_dump() for item in body.signalMapping]
     try:
         await orion.append_entity_attrs(tracker_id, {"signalMapping": prop(payload)})

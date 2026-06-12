@@ -98,6 +98,10 @@ class TestParks:
     def test_park_trackers_404_unknown_park(self, client, orion_world):
         assert client.get(f"{API}/parks/urn:nope/trackers").status_code == 404
 
+    def test_list_parks_orion_down_502(self, client, orion_world):
+        orion_world.fail_all = True
+        assert client.get(f"{API}/parks").status_code == 502
+
 
 class TestTrackerStatus:
     def test_status_404_unknown_tracker(self, client, orion_world):
@@ -110,6 +114,29 @@ class TestTrackerStatus:
                        params={"tracker_id": "urn:ngsi-ld:AgriEnergyTracker:t1"})
         assert r.status_code == 200
         assert r.json()["orientation"]["tilt"] == 42.0
+
+    def test_status_orion_down_502(self, client, orion_world):
+        orion_world.fail_all = True
+        r = client.get(f"{API}/status", params={"tracker_id": "urn:x"})
+        assert r.status_code == 502
+
+    def test_status_resolves_signal_mapping(self, client, orion_world):
+        orion_world.add({
+            "id": "urn:ngsi-ld:AgriSensor:s1", "type": "AgriSensor",
+            "soilMoisture": {"type": "Property", "value": 0.23},
+        })
+        orion_world.add(make_tracker(signalMapping={"type": "Property", "value": [
+            {"contextKey": "sensors.soil_moisture",
+             "entityId": "urn:ngsi-ld:AgriSensor:s1", "attribute": "soilMoisture"},
+            {"contextKey": "sensors.ghost",
+             "entityId": "urn:ngsi-ld:AgriSensor:missing", "attribute": "x"},
+        ]}))
+        r = client.get(f"{API}/status",
+                       params={"tracker_id": "urn:ngsi-ld:AgriEnergyTracker:t1"})
+        assert r.status_code == 200
+        sensors = r.json()["sensors"]
+        assert sensors["sensors.soil_moisture"] == pytest.approx(0.23)
+        assert "sensors.ghost" not in sensors  # missing entity skipped (fail-safe)
 
 
 class TestTrackerPatches:
