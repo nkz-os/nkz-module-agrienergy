@@ -38,6 +38,7 @@ from app.engines.pv_engine import PVEngine, PVSpec
 from app.engines.shadow_engine import ShadowEngine
 from app.models.ngsi import NGSILDSubscriptionPayload
 from app.services.orion import get_entity_or_none, get_orion, prop, rel
+from app.services.subscriptions import ensure_subscriptions
 from app.services.intelligence_client import IntelligenceClient
 from app.services.device_command_client import DeviceCommandClient
 from app.engines.algorithm_engine import AlgorithmEngine
@@ -336,6 +337,7 @@ async def get_parks(
     List all solar parks (AgriSolarPark entities). Each park has hasAgriParcel;
     trackers are matched by hasAgriParcel so we include tracker_count and tracker_ids.
     """
+    await ensure_subscriptions(orion.tenant_id)
     try:
         parks_raw = await orion.query_entities(type=ENTITY_TYPE_AGRI_SOLAR_PARK, limit=500)
         trackers_all = await orion.query_entities(type="AgriEnergyTracker", limit=500)
@@ -423,6 +425,7 @@ async def create_park(
     Create a new solar park (AgriSolarPark entity) linked to a parcel.
     Requires context_broker_url to be set in config (Orion-LD).
     """
+    await ensure_subscriptions(orion.tenant_id)
     entity_id = f"urn:ngsi-ld:{ENTITY_TYPE_AGRI_SOLAR_PARK}:{uuid.uuid4().hex}"
     entity = {
         "id": entity_id,

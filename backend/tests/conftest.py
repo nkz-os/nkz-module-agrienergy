@@ -219,6 +219,12 @@ def orion_world(monkeypatch):
     monkeypatch.setattr(
         "app.services.subscriptions.get_orion", fake_get_orion, raising=False
     )
+
+    import nkz_platform_sdk.subscriptions as sdk_subs
+    monkeypatch.setattr(
+        sdk_subs, "OrionClient",
+        lambda tenant_id, base_url=None, context_url=None: FakeOrionClient(world, tenant_id),
+    )
     monkeypatch.setattr("app.api.IntelligenceClient", FakeIntelligence)
     monkeypatch.setattr("app.api.DeviceCommandClient", FakeDeviceCommand)
     monkeypatch.setattr("app.api.ElevationService", FakeElevation)

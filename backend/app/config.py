@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # when sending application/json to Orion-LD. ETSI NGSI-LD mandatory.
     context_url: str = ""  # e.g. https://nkz.robotika.cloud/ngsi-ld-context.json
 
+    # /notify webhook URL announced in Orion-LD subscriptions (K8s env NOTIFICATION_URL).
+    notification_url: str = "http://agrienergy-api-service:8000/api/agrienergy/notify"
+
     # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
     agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
 
