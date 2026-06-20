@@ -53,3 +53,4 @@ CURRENT_STATE.md
 apikey_*.txt
 *.apikey
 *-secret*
+*_api_key.txt
