@@ -123,6 +123,19 @@ class AlgorithmEngine:
                 },
             },
             {
+                "id": "default:wind_storm_stow",
+                "name": "Wind storm stow (degraded or wind > 15 m/s -> flat)",
+                "logic": {
+                    "if": [
+                        {"==": [{"var": ["control.degraded", False]}, True]},
+                        {"tilt": 0, "azimuth": None},
+                        {">": [{"var": ["weather.wind_speed", -1]}, 15]},
+                        {"tilt": 0, "azimuth": None},
+                        {"tilt": 0, "azimuth": 180},
+                    ]
+                },
+            },
+            {
                 "id": "thermal_stress",
                 "name": "Thermal stress mitigation (T_extreme > 35°C -> shade 70°)",
                 "logic": {
