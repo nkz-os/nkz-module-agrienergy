@@ -93,7 +93,8 @@
       "selectEntity": "Selecionar entidade",
       "selectAttribute": "Selecionar atributo",
       "configureHint": "Configure sinais para ver valores de sensores.",
-      "clear": "Limpar"
+      "clear": "Limpar",
+      "required": "Obrigatorio (estiva se indisponivel)"
     },
     "sandbox": {
       "title": "Simulação de sombra",
