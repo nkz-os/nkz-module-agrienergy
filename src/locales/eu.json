@@ -93,7 +93,8 @@
       "selectEntity": "Entitatea hautatu",
       "selectAttribute": "Atributua hautatu",
       "configureHint": "Konfiguratu seinaleak sentsoreen balioak ikusteko.",
-      "clear": "Garbitu"
+      "clear": "Garbitu",
+      "required": "Beharrezkoa (ez badago, estiba)"
     },
     "sandbox": {
       "title": "Itzal-simulazioa",

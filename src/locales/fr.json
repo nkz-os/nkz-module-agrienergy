@@ -93,7 +93,8 @@
       "selectEntity": "Sélectionner une entité",
       "selectAttribute": "Sélectionner un attribut",
       "configureHint": "Configurez les signaux pour voir les valeurs des capteurs.",
-      "clear": "Effacer"
+      "clear": "Effacer",
+      "required": "Obligatoire (mise à plat si indisponible)"
     },
     "sandbox": {
       "title": "Simulation d'ombre",
