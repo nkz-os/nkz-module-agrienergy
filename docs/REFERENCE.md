@@ -46,6 +46,10 @@ The Intelligence module (evaluate_status, worker, Redis) is implemented and main
 
 ## 4. Odoo / N8N (energy communities)
 
-**FinBridgeEmitter** can POST to an N8N webhook with `tenant_id`, `tracker_id`, `date`, `generation_wh`, `consumption_wh`, `surplus_wh`, `module`. URL configurable via `AGRIENERGY_N8N_WEBHOOK_URL`.
+See **[ODOO_N8N_AGRIENERGY.md](ODOO_N8N_AGRIENERGY.md)** for the full webhook contract and Wh calculation spec.
 
-**Phase 8.2 (daily aggregation job) is blocked** until the method for computing `generation_wh` is documented: either (1) hardware read (inverter/smart meter total energy) or (2) software integration (e.g. trapezoidal rule over `measured_w` time series in DataHub). Until then, no automatic daily job; FinBridgeEmitter is available for manual or external triggers.
+**FinBridgeEmitter** POSTs to N8N with `tenant_id`, `tracker_id`, `date`, `generation_wh`, `consumption_wh`, `surplus_wh`, `module`. URL: `AGRIENERGY_N8N_WEBHOOK_URL`.
+
+**Daily job (Phase 8.2):** K8s CronJob `agrienergy-daily-aggregation` runs trapezoidal integration over `measuredPowerW` / `powerW` via timeseries-reader, emits FinBridge, writes `dailyGenerationWh` on the tracker in Orion-LD.
+
+**Intelligence push (P3-2):** Owned by the Intelligence module (pre-computed Redis bundle). AgriEnergy keeps the 200 ms read-only contract in `/notify`; no change required here.

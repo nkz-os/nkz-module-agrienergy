@@ -213,17 +213,32 @@ def orion_world(monkeypatch):
     def fake_get_orion(tenant_id: str):
         return FakeOrionClient(world, tenant_id)
 
-    # app.api imports get_orion by name -> patch in the consumer namespace.
+    # Patch Orion + external clients at every import site used by routes/evaluator.
     monkeypatch.setattr("app.api.get_orion", fake_get_orion)
+    monkeypatch.setattr("app.api.deps.get_orion", fake_get_orion)
+    monkeypatch.setattr("app.api.notify.get_orion", fake_get_orion)
 
     import nkz_platform_sdk.subscriptions as sdk_subs
     monkeypatch.setattr(
         sdk_subs, "OrionClient",
         lambda tenant_id, base_url=None, context_url=None: FakeOrionClient(world, tenant_id),
     )
-    monkeypatch.setattr("app.api.IntelligenceClient", FakeIntelligence)
-    monkeypatch.setattr("app.api.DeviceCommandClient", FakeDeviceCommand)
-    monkeypatch.setattr("app.api.ElevationService", FakeElevation)
+    for target in (
+        "app.api.IntelligenceClient",
+        "app.api.notify.IntelligenceClient",
+        "app.services.tracker_evaluator.IntelligenceClient",
+    ):
+        monkeypatch.setattr(target, FakeIntelligence)
+    for target in (
+        "app.api.DeviceCommandClient",
+        "app.services.tracker_evaluator.DeviceCommandClient",
+    ):
+        monkeypatch.setattr(target, FakeDeviceCommand)
+    for target in (
+        "app.api.ElevationService",
+        "app.services.tracker_evaluator.ElevationService",
+    ):
+        monkeypatch.setattr(target, FakeElevation)
     FakeIntelligence.response = {}
     FakeIntelligence.calls = []
     FakeDeviceCommand.commands = []

@@ -86,11 +86,12 @@ class TestResolveOrientation:
 
 
 class TestBuiltinPresets:
-    def test_seven_presets_exposed(self):
+    def test_eight_presets_exposed(self):
         ids = [p["id"] for p in ENG.builtin_algorithms()]
         assert ids == [
-            "default:maximize", "default:hierarchical_failsafe", "thermal_stress",
-            "wind_barrier", "frost_prevention", "hydric_stress", "par_optimization",
+            "default:maximize", "default:hierarchical_failsafe", "default:wind_storm_stow",
+            "thermal_stress", "wind_barrier", "frost_prevention", "hydric_stress",
+            "par_optimization",
         ]
 
     # (preset_id, context, expected evaluate_rule output)
@@ -124,6 +125,9 @@ class TestBuiltinPresets:
         ("default:hierarchical_failsafe",
          {"weather": {"wind_speed": 5, "ghi": 5}, "biology": {"stress_index": 0.1}},
          {"tilt": -60.0, "azimuth": 180.0}),
+        ("default:wind_storm_stow", {"control": {"degraded": True}}, {"tilt": 0.0}),
+        ("default:wind_storm_stow", {"weather": {"wind_speed": 20}}, {"tilt": 0.0}),
+        ("default:wind_storm_stow", {"weather": {"wind_speed": 5}}, {"tilt": 0.0, "azimuth": 180.0}),
     ]
 
     @pytest.mark.parametrize("pid,context,expected", CASES)
