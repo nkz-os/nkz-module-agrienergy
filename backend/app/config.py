@@ -45,6 +45,15 @@ class Settings(BaseSettings):
     # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
     agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
 
+    # Internal cron / entity-manager callbacks (K8s Secret internal-service-secret)
+    internal_service_secret: str = ""
+
+    # Timeseries reader URL for daily Wh worker (no direct DB access)
+    timeseries_reader_url: str = "http://timeseries-reader-service:5000"
+
+    # Service account JWT for worker → timeseries-reader (CronJob secret)
+    worker_bearer_token: str = ""
+
     # Database (optional - uncomment if using)
     # database_url: str = ""
     

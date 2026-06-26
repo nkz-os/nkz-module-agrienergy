@@ -93,7 +93,8 @@
       "selectEntity": "Select entity",
       "selectAttribute": "Select attribute",
       "configureHint": "Configure signals to see sensor values.",
-      "clear": "Clear"
+      "clear": "Clear",
+      "required": "Required (storm stow if unavailable)"
     },
     "sandbox": {
       "title": "Shadow simulation",

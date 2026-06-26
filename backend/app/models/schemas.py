@@ -84,6 +84,10 @@ class SignalMappingItem(BaseModel):
     contextKey: str
     entityId: str
     attribute: str = "value"
+    required: bool = Field(
+        default=False,
+        description="When true, unresolved signal forces storm stow (tilt 0) instead of algorithm defaults",
+    )
 
 
 class TrackerStatusResponse(BaseModel):
@@ -95,6 +99,8 @@ class TrackerStatusResponse(BaseModel):
     sensors: Dict[str, float] = Field(default_factory=dict)
     signal_mapping: Optional[List[SignalMappingItem]] = None  # current mapping for UI prefill
     active_algorithm_id: Optional[str] = None  # preset id when activeAlgorithm is {"id": "..."}
+    control_status: Optional[str] = None  # ok | degraded (from tracker or live signal faults)
+    signal_faults: List[str] = Field(default_factory=list)  # required contextKeys currently missing
     timestamp: str
 
 

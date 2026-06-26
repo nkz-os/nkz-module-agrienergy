@@ -51,6 +51,7 @@ interface MappingRow {
   contextKey: string;
   entityId: string;
   attribute: string;
+  required?: boolean;
 }
 
 interface ConfigureSignalsProps {
@@ -92,6 +93,7 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
       contextKey,
       entityId: '',
       attribute: 'value',
+      required: contextKey === 'weather.wind_speed',
     }))
   );
   const [saving, setSaving] = useState(false);
@@ -126,7 +128,11 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
     }
   }, [currentMapping]);
 
-  const setRow = (contextKey: string, field: 'entityId' | 'attribute', value: string) => {
+  const setRow = (
+    contextKey: string,
+    field: 'entityId' | 'attribute' | 'required',
+    value: string | boolean
+  ) => {
     setRows((prev) =>
       prev.map((r) => (r.contextKey === contextKey ? { ...r, [field]: value } : r))
     );
@@ -150,6 +156,7 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
         contextKey: r.contextKey,
         entityId: r.entityId,
         attribute: r.attribute,
+        ...(r.required ? { required: true } : {}),
       }));
     setSaving(true);
     setSaveStatus('idle');
@@ -226,6 +233,17 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
+                      {row.entityId && (
+                        <label className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.required)}
+                            onChange={(e) => setRow(row.contextKey, 'required', e.target.checked)}
+                            className="rounded border-gray-300"
+                          />
+                          {t('agrienergy.signals.required')}
+                        </label>
+                      )}
                       {selectedAttr?.last_value != null && (
                         <span
                           className={

@@ -1,7 +1,6 @@
 import httpx
 import logging
-from typing import Dict, Any, List
-from datetime import datetime
+from datetime import date, datetime
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -18,16 +17,22 @@ class FinBridgeEmitter:
             getattr(self.settings, "agrienergy_n8n_webhook_url", None) or ""
         ).strip() or "http://n8n-webhook-service:5678/webhook/agrienergy-aggregation"
 
-    async def emit_daily_aggregation(self, tenant_id: str, tracker_id: str, generation_wh: float, consumption_wh: float = 0.0):
+    async def emit_daily_aggregation(
+        self,
+        tenant_id: str,
+        tracker_id: str,
+        generation_wh: float,
+        consumption_wh: float = 0.0,
+        aggregation_date: date | None = None,
+    ):
         """
-        Emite el balance MWh y el estrés diario del panel.
-        Este evento asienta en las cuentas analíticas en el módulo Odoo.
+        Emit daily energy balance to N8N → Odoo (energy communities).
         """
-        
+        day = aggregation_date or datetime.utcnow().date()
         payload = {
             "tenant_id": tenant_id,
             "tracker_id": tracker_id,
-            "date": datetime.utcnow().date().isoformat(),
+            "date": day.isoformat(),
             "generation_wh": generation_wh,
             "consumption_wh": consumption_wh,
             "surplus_wh": generation_wh - consumption_wh,

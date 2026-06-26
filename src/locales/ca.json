@@ -93,7 +93,8 @@
       "selectEntity": "Seleccionar entitat",
       "selectAttribute": "Seleccionar atribut",
       "configureHint": "Configura senyals per veure valors de sensors.",
-      "clear": "Netejar"
+      "clear": "Netejar",
+      "required": "Obligatoria (estiba si no disponible)"
     },
     "sandbox": {
       "title": "Simulació d'ombra",
