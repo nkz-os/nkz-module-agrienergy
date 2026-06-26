@@ -14,6 +14,8 @@ scipy>=1.13.1
 json-logic-qubit>=0.9.1
 # Event / Core interaction
 paho-mqtt>=2.1.0
+# Tenant discovery for daily aggregation cron (optional at runtime)
+psycopg2-binary>=2.9.9
 # Platform SDK — NGSI-LD compliance at library level (tenant as-is, json+Link fragments)
 nkz-platform-sdk==0.5.0
 

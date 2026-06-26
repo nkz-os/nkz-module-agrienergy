@@ -28,7 +28,7 @@ class TestNotifyAuth:
         orion_world.add(make_tracker(activeAlgorithm={"type": "Property", "value": CONST_RULE}))
         r = notify(anon_client, [weather_event()])
         assert r.status_code == 200
-        assert r.json()["status"] == "processed"
+        assert r.json()["status"] == "accepted"
 
     def test_fiware_service_fallback(self, anon_client, orion_world):
         r = anon_client.post(NOTIFY, json=make_notification([weather_event()]),
@@ -61,7 +61,8 @@ class TestClosedLoop:
         assert (tenant, eid) == (TENANT, T1)
         # Single batched append with the full orientation contract
         assert set(attrs.keys()) == {
-            "targetTilt", "targetAzimuth", "tilt", "azimuth", "modelRotation"}
+            "targetTilt", "targetAzimuth", "tilt", "azimuth", "modelRotation", "controlStatus"}
+        assert attrs["controlStatus"]["value"] == "ok"
         assert attrs["targetTilt"]["value"] == 30.0
         assert attrs["targetAzimuth"]["value"] == 170.0
         assert attrs["modelRotation"]["value"] == [170.0, -30.0, 0.0]
@@ -88,8 +89,8 @@ class TestClosedLoop:
         # Physical tracker -> TWO appends: intent first, state last
         appends = [a for _, eid, a in orion_world.appended if eid == T1]
         assert len(appends) == 2
-        assert set(appends[0].keys()) == {"targetTilt", "targetAzimuth"}
-        assert set(appends[-1].keys()) == {"tilt", "azimuth", "modelRotation"}
+        assert set(appends[0].keys()) == {"targetTilt", "targetAzimuth", "controlStatus"}
+        assert set(appends[-1].keys()) == {"tilt", "azimuth", "modelRotation", "controlStatus"}
 
     def test_direct_tracker_notification(self, anon_client, orion_world):
         tracker = self._seed(orion_world)
@@ -120,8 +121,6 @@ class TestClosedLoop:
         r = notify(anon_client, [weather_event()])
         assert r.status_code == 200
         assert any(eid == T1 for _, eid, _ in orion_world.appended)  # good one actuated
-        assert r.json()["errors"] == 1
-        assert r.json()["trackers"] == 1
 
     def test_rotation_axis_locks_azimuth(self, anon_client, orion_world):
         self._seed(orion_world, rotationAxis={"type": "Property", "value": "north_south"})
@@ -135,11 +134,10 @@ class TestClosedLoop:
         self._seed(orion_world, refDevice={"type": "Property", "value": "dev-1"})
         r = notify(anon_client, [weather_event()])
         assert r.status_code == 200
-        assert r.json()["errors"] == 1
         # Intent recorded, but state NOT updated: the panel did not move.
         assert len(orion_world.appended) == 1
         _, _, attrs = orion_world.appended[0]
-        assert set(attrs.keys()) == {"targetTilt", "targetAzimuth"}
+        assert set(attrs.keys()) == {"targetTilt", "targetAzimuth", "controlStatus"}
         assert FakeDeviceCommand.commands == []
 
     def test_mqtt_failure_is_retried_on_next_notification(self, anon_client, orion_world):
@@ -149,10 +147,9 @@ class TestClosedLoop:
         # Device comes back: tilt still reads the old value, guard lets it retry
         FakeDeviceCommand.fail = False
         r = notify(anon_client, [weather_event()])
-        assert r.json()["errors"] == 0
         assert FakeDeviceCommand.commands and FakeDeviceCommand.commands[-1]["tilt"] == 30.0
         # State now updated
-        assert any(set(a.keys()) == {"tilt", "azimuth", "modelRotation"}
+        assert any(set(a.keys()) == {"tilt", "azimuth", "modelRotation", "controlStatus"}
                    for _, _, a in orion_world.appended)
 
     def test_azimuth_wraparound_treated_as_unchanged(self, anon_client, orion_world):
@@ -245,6 +242,36 @@ class TestSignalMapping:
         # leaf temp 1.0 <= 2 -> frost branch tilt 0
         assert orion_world.appended[-1][2]["targetTilt"]["value"] == 0.0
 
+    def test_required_wind_missing_forces_storm_stow(self, anon_client, orion_world):
+        orion_world.add(make_parcel())
+        orion_world.add(make_tracker(
+            activeAlgorithm={"type": "Property", "value": CONST_RULE},
+            signalMapping={"type": "Property", "value": [{
+                "contextKey": "weather.wind_speed",
+                "entityId": "urn:ngsi-ld:WeatherObserved:missing",
+                "attribute": "windSpeed",
+                "required": True,
+            }]},
+        ))
+        notify(anon_client, [weather_event()])
+        _, _, attrs = orion_world.appended[-1]
+        assert attrs["targetTilt"]["value"] == 0.0
+        assert attrs["controlStatus"]["value"] == "degraded"
+
+    def test_optional_sensor_missing_keeps_algorithm(self, anon_client, orion_world):
+        orion_world.add(make_parcel())
+        orion_world.add(make_tracker(
+            activeAlgorithm={"type": "Property", "value": CONST_RULE},
+            signalMapping={"type": "Property", "value": [{
+                "contextKey": "weather.wind_speed",
+                "entityId": "urn:ngsi-ld:WeatherObserved:missing",
+                "attribute": "windSpeed",
+                "required": False,
+            }]},
+        ))
+        notify(anon_client, [weather_event()])
+        assert orion_world.appended[-1][2]["targetTilt"]["value"] == 30.0
+
 
 class TestMagicRadiationDefaults:
     def test_weather_event_without_radiation_uses_documented_defaults(
@@ -258,3 +285,22 @@ class TestMagicRadiationDefaults:
         r = notify(anon_client, [weather_event()])  # no solarRadiation attr
         assert r.status_code == 200
         assert orion_world.appended[-1][2]["targetTilt"]["value"] == 30.0  # ghi=800 path
+
+
+class TestNotifyAckFast:
+    def test_accepted_response_without_sync_counters(self, anon_client, orion_world):
+        """P0: Orion gets ack-fast contract (no blocking counters in response)."""
+        orion_world.add(make_parcel())
+        for i in range(50):
+            orion_world.add(make_tracker(
+                eid=f"urn:ngsi-ld:AgriEnergyTracker:t{i}",
+                activeAlgorithm={"type": "Property", "value": CONST_RULE},
+            ))
+        r = notify(anon_client, [weather_event()])
+        body = r.json()
+        assert r.status_code == 200
+        assert body["status"] == "accepted"
+        assert body["entities"] == 1
+        assert "trackers" not in body
+        assert "errors" not in body
+        assert len(orion_world.appended) >= 50  # TestClient runs background before return
