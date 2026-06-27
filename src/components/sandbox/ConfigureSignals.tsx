@@ -27,7 +27,7 @@ import {
   normalizeSignalContextKey,
 } from '../../constants/signals';
 
-const DEFAULT_CONTEXT_KEYS = [...DEFAULT_SIGNAL_CONTEXT_KEYS];
+const DEFAULT_CONTEXT_KEYS: string[] = [...DEFAULT_SIGNAL_CONTEXT_KEYS];
 
 interface SignalSourceAttribute {
   name: string;
