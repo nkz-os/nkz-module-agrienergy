@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Timeseries reader URL for daily Wh worker (no direct DB access)
     timeseries_reader_url: str = "http://timeseries-reader-service:5000"
 
+    # MPC forecast (internal weather-api, X-Tenant-ID only)
+    weather_api_url: str = "http://weather-api-service:8000"
+
     # Service account JWT for worker → timeseries-reader (CronJob secret)
     worker_bearer_token: str = ""
 
