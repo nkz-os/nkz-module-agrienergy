@@ -8,8 +8,10 @@ from datetime import datetime
 from app.engines.algorithm_engine import AlgorithmEngine
 from app.engines.elevation import ElevationService
 from app.engines.pv_engine import PVEngine, PVSpec
+from app.services.biology_cache import resolve_biology_context
 from app.services.device_command_client import DeviceCommandClient
 from app.services.intelligence_client import IntelligenceClient
+from app.services.mpc_context import enrich_mpc_context
 from app.services.ngsi_helpers import build_telemetry_for_intelligence
 from app.services.orion import get_entity_or_none, prop
 from app.services.signal_resolver import (
@@ -117,6 +119,24 @@ async def evaluate_and_actuate_tracker(
             "Tracker %s: required signals missing %s -> storm stow tilt=0 (tenant=%s)",
             tracker_id, signal_resolution.missing_required, tenant_id,
         )
+    else:
+        try:
+            await enrich_mpc_context(
+                context,
+                tracker,
+                tenant_id,
+                lat,
+                lon,
+                p_tilt,
+                p_azimuth,
+                ghi,
+                dni,
+                dhi,
+                p_cap,
+                p_width * p_length,
+            )
+        except Exception:
+            logger.debug("MPC context enrichment failed for %s", tracker_id, exc_info=True)
 
     _loc_val = tracker.get("location", {}).get("value", {})
     is_multipoint = _loc_val.get("type") == "MultiPoint" and _loc_val.get("coordinates")
@@ -160,7 +180,9 @@ async def evaluate_and_actuate_tracker(
     shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
 
     telemetry = build_telemetry_for_intelligence(context)
-    biology = await intelligence_client.evaluate_status(
+    biology = await resolve_biology_context(
+        tracker,
+        intelligence_client,
         tenant_id=tenant_id,
         tracker_id=tracker_id,
         parcel_id=parcel_id,
