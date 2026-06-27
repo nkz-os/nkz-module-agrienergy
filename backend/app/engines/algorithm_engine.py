@@ -178,4 +178,26 @@ class AlgorithmEngine:
                 "name": "PAR optimization (par_under_panel < 800 -> standby -60°)",
                 "logic": {"if": [{"<": [{"var": ["sensors.par_under_panel", 1000]}, 800]}, -60, {"var": "tracker.tilt"}]},
             },
+            {
+                "id": "default:mpc_hold",
+                "name": "MPC hold (move only if net Wh gain > actuator cost)",
+                "logic": {
+                    "if": [
+                        {"==": [{"var": ["control.degraded", False]}, True]},
+                        {"tilt": 0, "azimuth": None},
+                        {">": [{"var": ["weather.ghi", 0]}, 10]},
+                        {
+                            "if": [
+                                {">": [
+                                    {"var": ["economics.net_gain_wh_1h", 0]},
+                                    {"var": ["actuator.move_cost_wh", 1]},
+                                ]},
+                                {"tilt": 0, "azimuth": 180},
+                                {"tilt": None, "azimuth": None},
+                            ]
+                        },
+                        {"tilt": -60, "azimuth": 180},
+                    ]
+                },
+            },
         ]

@@ -86,12 +86,12 @@ class TestResolveOrientation:
 
 
 class TestBuiltinPresets:
-    def test_eight_presets_exposed(self):
+    def test_nine_presets_exposed(self):
         ids = [p["id"] for p in ENG.builtin_algorithms()]
         assert ids == [
             "default:maximize", "default:hierarchical_failsafe", "default:wind_storm_stow",
             "thermal_stress", "wind_barrier", "frost_prevention", "hydric_stress",
-            "par_optimization",
+            "par_optimization", "default:mpc_hold",
         ]
 
     # (preset_id, context, expected evaluate_rule output)
