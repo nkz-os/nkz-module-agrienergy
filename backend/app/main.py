@@ -60,6 +60,14 @@ def create_app() -> FastAPI:
             "service": settings.app_name,
             "version": settings.app_version,
         }
+
+    @app.get("/metrics")
+    async def metrics():
+        """Prometheus scrape endpoint."""
+        from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+        from starlette.responses import Response
+
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
     
     # Include API routes
     app.include_router(api_router, prefix=settings.api_prefix)

@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, status
 
 from app.engines.shadow_engine import ShadowEngine
+from app.metrics import dequeue_notify_batch, enqueue_notify_batch, observe_tracker_eval
 from app.middleware import get_notification_tenant
 from app.models.ngsi import NGSILDSubscriptionPayload
 from app.services.intelligence_client import IntelligenceClient
@@ -30,10 +31,11 @@ async def _evaluate_tracker_safe(
     dhi: float,
 ) -> bool:
     try:
-        await evaluate_and_actuate_tracker(
-            orion, intelligence_client, shadow_engine,
-            tenant_id, tracker, ghi, dni, dhi,
-        )
+        with observe_tracker_eval():
+            await evaluate_and_actuate_tracker(
+                orion, intelligence_client, shadow_engine,
+                tenant_id, tracker, ghi, dni, dhi,
+            )
         return True
     except Exception:
         logger.exception(
@@ -59,6 +61,7 @@ async def process_ngsild_notification(
                 tenant_id, tracker, ghi, dni, dhi,
             )
 
+    enqueue_notify_batch()
     try:
         for entity in payload.data:
             entity_type = entity.get("type", "")
@@ -92,6 +95,7 @@ async def process_ngsild_notification(
             )
     finally:
         await orion.close()
+        dequeue_notify_batch()
 
 
 @router.post("/notify", status_code=status.HTTP_200_OK)
