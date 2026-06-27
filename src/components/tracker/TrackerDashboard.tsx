@@ -27,6 +27,8 @@ interface TrackerStatus {
   sensors: Record<string, number>;
   signal_mapping?: { contextKey: string; entityId: string; attribute: string }[] | null;
   active_algorithm_id?: string | null;
+  control_status?: string | null;
+  signal_faults?: string[];
   timestamp: string;
 }
 
@@ -34,11 +36,15 @@ interface TrackerDashboardProps {
   status: TrackerStatus;
 }
 
-/** Determine tracker status from timestamp freshness */
-function getTrackerHealth(timestamp: string): 'ok' | 'warning' | 'offline' {
+/** Determine tracker status from control state and timestamp freshness */
+function getTrackerHealth(
+  timestamp: string,
+  controlStatus?: string | null
+): 'ok' | 'warning' | 'offline' | 'critical' {
+  if (controlStatus === 'degraded') return 'critical';
   const age = Date.now() - new Date(timestamp).getTime();
-  if (age < 60_000) return 'ok'; // < 1 min
-  if (age < 300_000) return 'warning'; // < 5 min
+  if (age < 60_000) return 'ok';
+  if (age < 300_000) return 'warning';
   return 'offline';
 }
 
@@ -74,6 +80,8 @@ const SENSOR_ICONS: Record<string, React.ReactNode> = {
   'weather.temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-red-500' }),
   'weather.wind_speed': React.createElement(Wind, { size: 12, className: 'text-blue-500' }),
   'weather.humidity': React.createElement(Droplets, { size: 12, className: 'text-cyan-500' }),
+  'sensors.leaf_temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-lime-500' }),
+  'sensors.par_under_panel': React.createElement(Activity, { size: 12, className: 'text-purple-500' }),
   'crop.stress_index': React.createElement(Leaf, { size: 12, className: 'text-green-500' }),
   'crop.leaf_temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-lime-500' }),
   'crop.par': React.createElement(Activity, { size: 12, className: 'text-purple-500' }),
@@ -101,14 +109,16 @@ function getSensorColor(key: string, value: number): string {
 
 export const TrackerDashboard: React.FC<TrackerDashboardProps> = ({ status }) => {
   const { t } = useTranslation();
-  const health = getTrackerHealth(status.timestamp);
+  const health = getTrackerHealth(status.timestamp, status.control_status);
 
   const healthLabel =
-    health === 'ok'
-      ? t('agrienergy.dashboard.statusOk')
-      : health === 'warning'
-        ? t('agrienergy.dashboard.statusWarning')
-        : t('agrienergy.dashboard.statusOffline');
+    health === 'critical'
+      ? t('agrienergy.dashboard.statusDegraded')
+      : health === 'ok'
+        ? t('agrienergy.dashboard.statusOk')
+        : health === 'warning'
+          ? t('agrienergy.dashboard.statusWarning')
+          : t('agrienergy.dashboard.statusOffline');
 
   const efficiency =
     status.power.measured_w != null && status.power.expected_w != null && status.power.expected_w > 0
@@ -132,6 +142,21 @@ export const TrackerDashboard: React.FC<TrackerDashboardProps> = ({ status }) =>
         </div>
         <StatusBadge status={health} label={healthLabel} />
       </div>
+
+      {status.control_status === 'degraded' && (status.signal_faults?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2">
+          <p className="text-[10px] font-semibold text-red-700 dark:text-red-300">
+            {t('agrienergy.dashboard.signalFaults')}
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {status.signal_faults!.map((key) => (
+              <li key={key} className="text-[10px] font-mono text-red-600 dark:text-red-400">
+                {t(`agrienergy.sensorLabels.${key}` as any) || key}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Gauge row */}
       <div className="grid grid-cols-3 gap-2">

@@ -41,6 +41,8 @@ interface TrackerStatus {
   sensors: Record<string, number>;
   signal_mapping?: SignalMappingRow[] | null;
   active_algorithm_id?: string | null;
+  control_status?: string | null;
+  signal_faults?: string[];
   timestamp: string;
 }
 

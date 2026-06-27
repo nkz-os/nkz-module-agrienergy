@@ -51,7 +51,13 @@ interface TrackerStatusResponse {
   orientation: { tilt: number; azimuth: number };
   power: { measured_w?: number; expected_w?: number };
   active_algorithm_id?: string | null;
+  control_status?: string | null;
   timestamp: string;
+}
+
+interface AlgorithmPreset {
+  id: string;
+  name: string;
 }
 
 export const ParkOverview: React.FC = () => {
@@ -71,6 +77,7 @@ export const ParkOverview: React.FC = () => {
   const [createParcelId, setCreateParcelId] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [algorithmNames, setAlgorithmNames] = useState<Record<string, string>>({});
 
   const fetchParks = useCallback(async () => {
     setLoadingParks(true);
@@ -99,10 +106,27 @@ export const ParkOverview: React.FC = () => {
     }
   }, []);
 
+  const fetchAlgorithms = useCallback(async () => {
+    try {
+      const res = await fetchWithAuth('/api/agrienergy/algorithms');
+      if (res.ok) {
+        const data = await res.json();
+        const names: Record<string, string> = {};
+        (data.algorithms as AlgorithmPreset[] | undefined)?.forEach((a) => {
+          names[a.id] = a.name;
+        });
+        setAlgorithmNames(names);
+      }
+    } catch {
+      setAlgorithmNames({});
+    }
+  }, []);
+
   useEffect(() => {
     fetchParks();
     fetchParcels();
-  }, [fetchParks, fetchParcels]);
+    fetchAlgorithms();
+  }, [fetchParks, fetchParcels, fetchAlgorithms]);
 
   // Load tracker details when a park is selected
   useEffect(() => {
@@ -129,9 +153,15 @@ export const ParkOverview: React.FC = () => {
                 row.tilt = s.orientation.tilt;
                 row.azimuth = s.orientation.azimuth;
                 row.power_w = s.power.measured_w ?? s.power.expected_w;
-                row.algorithm_name = s.active_algorithm_id ?? undefined;
+                row.algorithm_name = s.active_algorithm_id
+                  ? algorithmNames[s.active_algorithm_id] ?? s.active_algorithm_id
+                  : undefined;
                 const age = Date.now() - new Date(s.timestamp).getTime();
-                row.status = age < 60_000 ? 'ok' : age < 300_000 ? 'warning' : 'offline';
+                if (s.control_status === 'degraded') {
+                  row.status = 'critical';
+                } else {
+                  row.status = age < 60_000 ? 'ok' : age < 300_000 ? 'warning' : 'offline';
+                }
               } else {
                 row.status = 'offline';
               }
@@ -145,7 +175,7 @@ export const ParkOverview: React.FC = () => {
       })
       .catch(() => setTrackerRows([]))
       .finally(() => setLoadingTrackers(false));
-  }, [selectedParkId]);
+  }, [selectedParkId, algorithmNames]);
 
   const handleCreatePark = async () => {
     if (!createName.trim() || !createParcelId.trim()) return;
@@ -352,6 +382,11 @@ export const ParkOverview: React.FC = () => {
                       <span className="font-mono text-blue-600 dark:text-blue-400 hover:underline truncate block max-w-[120px]">
                         {row.name || row.tracker_id.split(':').pop()}
                       </span>
+                      {row.algorithm_name && (
+                        <span className="text-[9px] text-gray-400 dark:text-gray-500 truncate block max-w-[120px]">
+                          {row.algorithm_name}
+                        </span>
+                      )}
                     </td>
                     <td className="text-right px-2 py-1.5 font-mono text-gray-700 dark:text-gray-300">
                       {row.tilt != null ? `${row.tilt.toFixed(0)}${t('agrienergy.panel.deg')}` : '\u2014'}

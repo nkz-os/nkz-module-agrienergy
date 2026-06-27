@@ -10,7 +10,6 @@ import {
   ThermometerSun,
   Wind,
   Droplets,
-  Leaf,
   Activity,
   X,
 } from 'lucide-react';
@@ -23,17 +22,12 @@ function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
-const DEFAULT_CONTEXT_KEYS = [
-  'weather.ghi',
-  'weather.dni',
-  'weather.dhi',
-  'weather.temperature',
-  'weather.wind_speed',
-  'weather.humidity',
-  'crop.stress_index',
-  'crop.leaf_temperature',
-  'crop.par',
-];
+import {
+  DEFAULT_SIGNAL_CONTEXT_KEYS,
+  normalizeSignalContextKey,
+} from '../../constants/signals';
+
+const DEFAULT_CONTEXT_KEYS = [...DEFAULT_SIGNAL_CONTEXT_KEYS];
 
 interface SignalSourceAttribute {
   name: string;
@@ -68,9 +62,8 @@ const CONTEXT_KEY_ICONS: Record<string, React.ReactNode> = {
   'weather.temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-red-500' }),
   'weather.wind_speed': React.createElement(Wind, { size: 12, className: 'text-blue-500' }),
   'weather.humidity': React.createElement(Droplets, { size: 12, className: 'text-cyan-500' }),
-  'crop.stress_index': React.createElement(Leaf, { size: 12, className: 'text-green-500' }),
-  'crop.leaf_temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-lime-500' }),
-  'crop.par': React.createElement(Activity, { size: 12, className: 'text-purple-500' }),
+  'sensors.leaf_temperature': React.createElement(ThermometerSun, { size: 12, className: 'text-lime-500' }),
+  'sensors.par_under_panel': React.createElement(Activity, { size: 12, className: 'text-purple-500' }),
 };
 
 /** Color for last value display */
@@ -122,7 +115,9 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
     if (currentMapping && currentMapping.length > 0) {
       const byKey: Record<string, MappingRow> = {};
       currentMapping.forEach((m) => {
-        byKey[m.contextKey] = m;
+        const normalizedKey = normalizeSignalContextKey(m.contextKey);
+        if (normalizedKey === 'crop.stress_index') return;
+        byKey[normalizedKey] = { ...m, contextKey: normalizedKey };
       });
       setRows((prev) => prev.map((r) => byKey[r.contextKey] || r));
     }
@@ -193,6 +188,10 @@ export const ConfigureSignals: React.FC<ConfigureSignalsProps> = ({
 
   return (
     <div className="space-y-3">
+      <p className="text-[10px] text-gray-500 dark:text-gray-400 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-2 py-1.5">
+        {t('agrienergy.signals.biologyNote')}
+      </p>
+
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {t('agrienergy.signals.description')}

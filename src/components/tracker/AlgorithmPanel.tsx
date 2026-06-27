@@ -15,6 +15,7 @@ import {
   Leaf,
   Settings,
   Check,
+  Scale,
 } from 'lucide-react';
 
 function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
@@ -60,6 +61,20 @@ const PRESET_META: Record<string, PresetMeta> = {
     triggerKey: 'agrienergy.algorithmTriggers.hierarchical_failsafe',
     accentColor: 'text-blue-500',
     borderColor: 'border-blue-300 dark:border-blue-600',
+  },
+  'default:wind_storm_stow': {
+    icon: React.createElement(Shield, { size: 18 }),
+    descriptionKey: 'agrienergy.algorithmDescriptions.wind_storm_stow',
+    triggerKey: 'agrienergy.algorithmTriggers.wind_storm_stow',
+    accentColor: 'text-orange-500',
+    borderColor: 'border-orange-300 dark:border-orange-600',
+  },
+  'default:mpc_hold': {
+    icon: React.createElement(Scale, { size: 18 }),
+    descriptionKey: 'agrienergy.algorithmDescriptions.mpc_hold',
+    triggerKey: 'agrienergy.algorithmTriggers.mpc_hold',
+    accentColor: 'text-violet-500',
+    borderColor: 'border-violet-300 dark:border-violet-600',
   },
   thermal_stress: {
     icon: React.createElement(ThermometerSun, { size: 18 }),

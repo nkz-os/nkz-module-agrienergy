@@ -35,6 +35,8 @@
       "statusOk": "En línia",
       "statusWarning": "Desactualitzat",
       "statusOffline": "Fora de línia",
+      "statusDegraded": "Degradat",
+      "signalFaults": "Senyals obligatòries absents (estiba activa)",
       "tilt": "Inclinació",
       "power": "Potència",
       "orientation": "Orientació",
@@ -72,7 +74,9 @@
       "wind_barrier": "Mode de protecció del vent. Panells a 75° quan el vent > 15 m/s.",
       "frost_prevention": "Prevé danys per gelada. Panells plans quan la temperatura foliar ≤ 2°C.",
       "hydric_stress": "Mitiga l'estrès hídric. Ombreja els cultius quan l'índex d'estrès > 0.8.",
-      "par_optimization": "Optimitza la llum per als cultius sota panell. S'ajusta segons els nivells PAR."
+      "par_optimization": "Optimitza la llum per als cultius sota panell. S'ajusta segons els nivells PAR.",
+      "wind_storm_stow": "Preset de tempesta. Panell pla si degradat o vent > 15 m/s.",
+      "mpc_hold": "Només es mou si el guany net Wh/1h supera el cost de l'actuador."
     },
     "algorithmTriggers": {
       "maximize": "GHI > 10 → 0° | else → -60°",
@@ -81,11 +85,14 @@
       "wind_barrier": "Wind > 15 m/s → 75°",
       "frost_prevention": "T_leaf ≤ 2°C → 0°",
       "hydric_stress": "Stress > 0.8 → 70°",
-      "par_optimization": "PAR < 800 → -60°"
+      "par_optimization": "PAR < 800 → -60°",
+      "wind_storm_stow": "Degradat o vent > 15 m/s → pla",
+      "mpc_hold": "guany_net > cost_mov → track | else hold"
     },
     "signals": {
       "title": "Configurar senyals",
       "description": "Assigna una entitat i atribut de la plataforma a cada variable de l'algorisme.",
+      "biologyNote": "biology.stress_index s'omple automàticament des d'Intelligence en cada /notify (no es mapa aquí).",
       "save": "Desar mapatge",
       "saved": "Mapatge desat",
       "error": "Error en desar",
@@ -112,9 +119,11 @@
       "weather.temperature": "Temperatura",
       "weather.wind_speed": "Velocitat del vent",
       "weather.humidity": "Humitat",
-      "crop.stress_index": "Índex d'estrès",
-      "crop.leaf_temperature": "Temp. foliar",
-      "crop.par": "PAR"
+      "sensors.leaf_temperature": "Temp. foliar",
+      "sensors.par_under_panel": "PAR sota panell",
+      "crop.stress_index": "Índex d'estrès (legacy)",
+      "crop.leaf_temperature": "Temp. foliar (legacy)",
+      "crop.par": "PAR (legacy)"
     },
     "parkOverview": {
       "refresh": "Actualitzar",

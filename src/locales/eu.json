@@ -35,6 +35,8 @@
       "statusOk": "Linean",
       "statusWarning": "Zaharkitua",
       "statusOffline": "Lineaz kanpo",
+      "statusDegraded": "Degradatua",
+      "signalFaults": "Beharrezko seinaleak falta (estiba aktibo)",
       "tilt": "Inklinazioa",
       "power": "Potentzia",
       "orientation": "Orientazioa",
@@ -72,7 +74,9 @@
       "wind_barrier": "Haize-babes modua. Panelak 75°-ra haizea > 15 m/s denean.",
       "frost_prevention": "Izotz-kalteak saihesten ditu. Panelak lau hosto-tenperatura ≤ 2°C denean.",
       "hydric_stress": "Estres hidrikoa arintzen du. Laboreak itzaltzen ditu estres-indizea > 0.8 denean.",
-      "par_optimization": "Panel azpiko laboreentzako argia optimizatzen du. PAR mailen arabera doitzen da."
+      "par_optimization": "Panel azpiko laboreentzako argia optimizatzen du. PAR mailen arabera doitzen da.",
+      "wind_storm_stow": "Ekaitz-estiba. Panela lau degradatua edo haizea > 15 m/s.",
+      "mpc_hold": "Mugitzen da soilik 1 h-ko irabazi garbia aktuatzaile-kostua gainditzen duenean."
     },
     "algorithmTriggers": {
       "maximize": "GHI > 10 → 0° | else → -60°",
@@ -81,11 +85,14 @@
       "wind_barrier": "Wind > 15 m/s → 75°",
       "frost_prevention": "T_leaf ≤ 2°C → 0°",
       "hydric_stress": "Stress > 0.8 → 70°",
-      "par_optimization": "PAR < 800 → -60°"
+      "par_optimization": "PAR < 800 → -60°",
+      "wind_storm_stow": "Degradatua edo haizea > 15 m/s → lau",
+      "mpc_hold": "irabazi_garbia > mugimendu_kostua → track | else hold"
     },
     "signals": {
       "title": "Seinaleak konfiguratu",
       "description": "Esleitu plataformako entitate eta atributu bat algoritmoaren aldagai bakoitzari.",
+      "biologyNote": "biology.stress_index Intelligence-tik automatikoki betetzen da /notify bakoitzean (ez da hemen mapatzen).",
       "save": "Mapaketa gorde",
       "saved": "Mapaketa gordeta",
       "error": "Errorea gordetzean",
@@ -112,9 +119,11 @@
       "weather.temperature": "Tenperatura",
       "weather.wind_speed": "Haize-abiadura",
       "weather.humidity": "Hezetasuna",
-      "crop.stress_index": "Estres-indizea",
-      "crop.leaf_temperature": "Hosto-tenp.",
-      "crop.par": "PAR"
+      "sensors.leaf_temperature": "Hosto-tenp.",
+      "sensors.par_under_panel": "PAR panel azpian",
+      "crop.stress_index": "Estres-indizea (legacy)",
+      "crop.leaf_temperature": "Hosto-tenp. (legacy)",
+      "crop.par": "PAR (legacy)"
     },
     "parkOverview": {
       "refresh": "Eguneratu",

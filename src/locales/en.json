@@ -35,6 +35,8 @@
       "statusOk": "Online",
       "statusWarning": "Stale",
       "statusOffline": "Offline",
+      "statusDegraded": "Degraded",
+      "signalFaults": "Missing required signals (storm stow active)",
       "tilt": "Tilt",
       "power": "Power",
       "orientation": "Orientation",
@@ -72,7 +74,9 @@
       "wind_barrier": "Wind protection mode. Panels steep at 75° when wind > 15 m/s.",
       "frost_prevention": "Prevents frost damage. Panels flat when leaf temperature ≤ 2°C.",
       "hydric_stress": "Water stress mitigation. Shades crops when stress index > 0.8.",
-      "par_optimization": "Optimizes light for understory crops. Adjusts based on PAR levels."
+      "par_optimization": "Optimizes light for understory crops. Adjusts based on PAR levels.",
+      "wind_storm_stow": "Storm stow preset. Flattens panel when degraded or wind > 15 m/s.",
+      "mpc_hold": "Moves only when 1 h net Wh gain exceeds actuator move cost."
     },
     "algorithmTriggers": {
       "maximize": "GHI > 10 → 0° | else → -60°",
@@ -81,11 +85,14 @@
       "wind_barrier": "Wind > 15 m/s → 75°",
       "frost_prevention": "T_leaf ≤ 2°C → 0°",
       "hydric_stress": "Stress > 0.8 → 70°",
-      "par_optimization": "PAR < 800 → -60°"
+      "par_optimization": "PAR < 800 → -60°",
+      "wind_storm_stow": "Degraded or wind > 15 m/s → flat",
+      "mpc_hold": "net_gain_wh > move_cost → track | else hold"
     },
     "signals": {
       "title": "Configure signals",
       "description": "Assign a platform entity and attribute to each algorithm variable.",
+      "biologyNote": "biology.stress_index is filled automatically from Intelligence on each /notify (not mapped here).",
       "save": "Save mapping",
       "saved": "Mapping saved",
       "error": "Error saving",
@@ -112,9 +119,11 @@
       "weather.temperature": "Temperature",
       "weather.wind_speed": "Wind speed",
       "weather.humidity": "Humidity",
-      "crop.stress_index": "Stress index",
-      "crop.leaf_temperature": "Leaf temp.",
-      "crop.par": "PAR"
+      "sensors.leaf_temperature": "Leaf temp.",
+      "sensors.par_under_panel": "PAR under panel",
+      "crop.stress_index": "Stress index (legacy)",
+      "crop.leaf_temperature": "Leaf temp. (legacy)",
+      "crop.par": "PAR (legacy)"
     },
     "parkOverview": {
       "refresh": "Refresh",

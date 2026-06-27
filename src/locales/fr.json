@@ -35,6 +35,8 @@
       "statusOk": "En ligne",
       "statusWarning": "Obsolète",
       "statusOffline": "Hors ligne",
+      "statusDegraded": "Dégradé",
+      "signalFaults": "Signaux requis manquants (repli actif)",
       "tilt": "Inclinaison",
       "power": "Puissance",
       "orientation": "Orientation",
@@ -72,7 +74,9 @@
       "wind_barrier": "Mode protection du vent. Panneaux à 75° quand le vent > 15 m/s.",
       "frost_prevention": "Prévient les dégâts du gel. Panneaux à plat quand la température foliaire ≤ 2°C.",
       "hydric_stress": "Atténue le stress hydrique. Ombrage des cultures quand l'indice de stress > 0.8.",
-      "par_optimization": "Optimise la lumière pour les cultures sous panneau. S'ajuste selon les niveaux PAR."
+      "par_optimization": "Optimise la lumière pour les cultures sous panneau. S'ajuste selon les niveaux PAR.",
+      "wind_storm_stow": "Repli tempête. Panneau à plat si dégradé ou vent > 15 m/s.",
+      "mpc_hold": "Ne bouge que si le gain net Wh/1h dépasse le coût de l'actionneur."
     },
     "algorithmTriggers": {
       "maximize": "GHI > 10 → 0° | else → -60°",
@@ -81,11 +85,14 @@
       "wind_barrier": "Wind > 15 m/s → 75°",
       "frost_prevention": "T_leaf ≤ 2°C → 0°",
       "hydric_stress": "Stress > 0.8 → 70°",
-      "par_optimization": "PAR < 800 → -60°"
+      "par_optimization": "PAR < 800 → -60°",
+      "wind_storm_stow": "Dégradé ou vent > 15 m/s → plat",
+      "mpc_hold": "gain_net > coût_mouv → track | else hold"
     },
     "signals": {
       "title": "Configurer les signaux",
       "description": "Affectez une entité et un attribut de la plateforme à chaque variable de l'algorithme.",
+      "biologyNote": "biology.stress_index est rempli automatiquement par Intelligence à chaque /notify (non mappé ici).",
       "save": "Enregistrer le mappage",
       "saved": "Mappage enregistré",
       "error": "Erreur lors de l'enregistrement",
@@ -112,9 +119,11 @@
       "weather.temperature": "Température",
       "weather.wind_speed": "Vitesse du vent",
       "weather.humidity": "Humidité",
-      "crop.stress_index": "Indice de stress",
-      "crop.leaf_temperature": "Temp. foliaire",
-      "crop.par": "PAR"
+      "sensors.leaf_temperature": "Temp. foliaire",
+      "sensors.par_under_panel": "PAR sous panneau",
+      "crop.stress_index": "Indice de stress (legacy)",
+      "crop.leaf_temperature": "Temp. foliaire (legacy)",
+      "crop.par": "PAR (legacy)"
     },
     "parkOverview": {
       "refresh": "Actualiser",
