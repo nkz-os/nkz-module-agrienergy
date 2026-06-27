@@ -11,6 +11,7 @@ from urllib.parse import quote
 import httpx
 
 from app.services.platform_hmac import generate_hmac_signature
+from app.services.worker_auth import obtain_worker_service_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +32,34 @@ class TimeseriesReaderClient:
             base_url
             or os.getenv("TIMESERIES_READER_URL", "http://timeseries-reader-service:5000")
         ).rstrip("/")
-        self.bearer_token = (bearer_token or os.getenv("WORKER_BEARER_TOKEN", "")).strip()
+        static = (bearer_token or os.getenv("WORKER_BEARER_TOKEN", "")).strip()
+        if static:
+            self.bearer_token = static
+            self._delegated_tenant = os.getenv(
+                "WORKER_USE_DELEGATED_TENANT", ""
+            ).lower() in ("1", "true", "yes")
+        else:
+            self.bearer_token = obtain_worker_service_jwt() or ""
+            self._delegated_tenant = bool(self.bearer_token)
         self._client = httpx.AsyncClient(timeout=60.0)
 
     def _headers(self) -> dict[str, str]:
         headers = {
-            "X-Tenant-ID": self.tenant_id,
             "NGSILD-Tenant": self.tenant_id,
             "Fiware-Service": self.tenant_id,
             "X-User-ID": "agrienergy-daily-aggregation",
             "Content-Type": "application/json",
         }
+        if self._delegated_tenant:
+            headers["X-Delegated-Tenant-ID"] = self.tenant_id
+        else:
+            headers["X-Tenant-ID"] = self.tenant_id
         if self.bearer_token:
             headers["Authorization"] = f"Bearer {self.bearer_token}"
-            sig = generate_hmac_signature(self.bearer_token, self.tenant_id)
-            if sig:
-                headers["X-Auth-Signature"] = sig
+            if not self._delegated_tenant:
+                sig = generate_hmac_signature(self.bearer_token, self.tenant_id)
+                if sig:
+                    headers["X-Auth-Signature"] = sig
         return headers
 
     async def fetch_power_series(
@@ -59,7 +72,7 @@ class TimeseriesReaderClient:
         """Return normalised ``[{ts, value}]`` for the first attribute with data."""
         if not self.bearer_token:
             logger.warning(
-                "timeseries: WORKER_BEARER_TOKEN unset — cannot query %s (tenant=%s)",
+                "timeseries: no worker JWT — cannot query %s (tenant=%s)",
                 entity_id, self.tenant_id,
             )
             return []
