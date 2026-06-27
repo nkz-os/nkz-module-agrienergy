@@ -48,9 +48,12 @@ The cron pod calls `timeseries-reader` over HTTP (no direct Postgres timeseries 
 
 | Variable | Purpose |
 |----------|---------|
-| `WORKER_BEARER_TOKEN` | Service-account JWT (Keycloak client credentials) |
-| `HMAC_SECRET` | `X-Auth-Signature` for timeseries-reader (`{sig}:{ts}`) |
+| `WORKER_KEYCLOAK_CLIENT_ID` / `WORKER_KEYCLOAK_CLIENT_SECRET` | Keycloak client credentials (production: `api-gateway-keycloak-secret`) |
+| `KEYCLOAK_URL` | Internal Keycloak (`http://keycloak-service:8080/auth`) |
+| `KEYCLOAK_REALM` | `nekazari` |
 | `TIMESERIES_READER_URL` | Internal service URL |
+
+The worker mints a short-lived JWT via client credentials and calls timeseries-reader with **`X-Delegated-Tenant-ID`** (system-gateway delegated auth). Optional static override: `WORKER_BEARER_TOKEN` + `WORKER_USE_DELEGATED_TENANT=true`.
 
 Tenant discovery: `AGGREGATION_TENANTS` override, else `tenant_installed_modules` where `module_id = 'agrienergy'`.
 

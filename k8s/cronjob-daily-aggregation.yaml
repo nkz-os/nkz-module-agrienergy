@@ -29,11 +29,20 @@ spec:
                   value: "http://timeseries-reader-service:5000"
                 - name: AGRIENERGY_N8N_WEBHOOK_URL
                   value: "http://n8n-webhook-service:5678/webhook/agrienergy-aggregation"
-                - name: HMAC_SECRET
+                - name: KEYCLOAK_URL
+                  value: "http://keycloak-service:8080/auth"
+                - name: KEYCLOAK_REALM
+                  value: "nekazari"
+                - name: WORKER_KEYCLOAK_CLIENT_ID
                   valueFrom:
                     secretKeyRef:
-                      name: jwt-secret
-                      key: secret
+                      name: api-gateway-keycloak-secret
+                      key: client-id
+                - name: WORKER_KEYCLOAK_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: api-gateway-keycloak-secret
+                      key: client-secret
                 - name: WORKER_BEARER_TOKEN
                   valueFrom:
                     secretKeyRef:
