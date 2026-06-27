@@ -34,6 +34,59 @@ Ensure ingress routes `/api/agrienergy` to `agrienergy-api-service:8000` before 
 
 ---
 
+## Predictive control (MPC)
+
+**MPC** here is a *simplified economic gate* for tracker movement — not industrial minute-by-minute trajectory control.
+
+### The problem
+
+Moving a solar tracker consumes actuator energy (motor draw). If the panel is already close to optimal, a small move may cost more Wh than the extra generation it would unlock in the next hour. Naive rules (e.g. “always track the sun when GHI > 10”) can waste energy on marginal adjustments.
+
+### What the backend does
+
+On each `/notify` evaluation (when storm stow is not forced), the orchestrator enriches the JSON Logic context with three optional groups:
+
+| Context key | Source | Meaning |
+|-------------|--------|---------|
+| `forecast.*` | Weather API (`/api/weather/parcel/{id}/forecast`) | 1 h horizon GHI/DNI/DHI; falls back to live telemetry if unavailable |
+| `actuator.*` | `ACTUATOR_WATTS_PER_DEGREE` (default 2.5 W/°) | Estimated Wh to move from current → proposed orientation |
+| `economics.*` | pvlib simulation | `gain_wh_1h`, `net_gain_wh_1h` = expected generation delta minus move cost |
+
+Rules can read these like any other context variable, with fail-safe defaults:
+
+```json
+{">": [{"var": ["economics.net_gain_wh_1h", 0]}, {"var": ["actuator.move_cost_wh", 1]}]}
+```
+
+### Built-in preset: `default:mpc_hold`
+
+Assign via PATCH `/api/agrienergy/trackers/{id}/algorithm` with `{ "activeAlgorithm": { "id": "default:mpc_hold" } }`.
+
+Logic in plain terms:
+
+1. **Degraded control** (`control.degraded == true`, e.g. required sensor missing) → storm stow (tilt 0°).
+2. **GHI > 10** → move to production orientation (0°, 180°) *only if* `economics.net_gain_wh_1h > actuator.move_cost_wh`; otherwise **hold** current position.
+3. **Low sun** → standby (-60°).
+
+Analogy: a smart thermostat that skips a heating cycle when the comfort gain would not pay for the energy spent.
+
+### What this is not
+
+- No multi-step horizon optimization or continuous trajectory planning.
+- No closed-loop PID; orientation still comes from JSON Logic presets you choose.
+- Forecast and economics are best-effort — enrichment failures are logged and the rule falls back to defaults.
+
+### Configuration
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `WEATHER_API_URL` | internal weather service | Short-term solar forecast for MPC |
+| `ACTUATOR_WATTS_PER_DEGREE` | `2.5` | Motor energy proxy for move-cost estimate |
+
+Biology scalars (`biology.stress_index`, etc.) are read from the tracker’s `biologyCache` when fresh; otherwise the 200 ms Intelligence handshake applies. MPC presets compose with biology rules (e.g. `default:hierarchical_failsafe`) via custom JSON Logic.
+
+---
+
 ## Quick start
 
 ```bash
