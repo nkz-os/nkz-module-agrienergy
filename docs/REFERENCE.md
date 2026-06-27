@@ -14,11 +14,15 @@ Single reference for algorithms, simulation, and integrations. The repo is publi
 |----|------|-----------------|
 | default:maximize | Maximize production | GHI > 10 → 0°; else -60°. |
 | default:hierarchical_failsafe | Hierarchical fail-safe (recommended) | Wind > 15 → 0°; stress_index > 0.8 → 70°; GHI > 10 → 0°; else -60°. |
+| default:wind_storm_stow | Wind storm stow | `control.degraded` or wind > 15 m/s → flat; else track. |
+| default:mpc_hold | MPC hold | Degraded → stow; GHI > 10 → move only if `economics.net_gain_wh_1h > actuator.move_cost_wh`; else hold; low sun → -60°. |
 | thermal_stress | Thermal stress (T > 35°C) | Shade 70°; else 0°. |
 | wind_barrier | Wind barrier (> 15 m/s) | Tilt 75°; else 0°. |
 | hydric_stress | Hydric stress (LSTM) | stress_index > 0.8 → 70°; else -60°. |
 | frost_prevention | Frost (leaf_temperature ≤ 2°C) | Tilt 0°; else keep current. |
 | par_optimization | PAR under panel < 800 | Standby -60°; else keep current. |
+
+**MPC context** (enriched on `/notify` when not in forced stow): `forecast.*` (1 h GHI/DNI/DHI), `actuator.*` (move cost Wh), `economics.*` (`net_gain_wh_1h`). See README § Predictive control (MPC).
 
 **Adding a new algorithm**: (1) Ensure data is in context (signalMapping for sensors; Intelligence for biology.*). (2) Write JSON Logic with `var` + default and return `{ "tilt", "azimuth" }`. (3) Add an entry to `AlgorithmEngine.builtin_algorithms()` in `backend/app/engines/algorithm_engine.py`.
 
