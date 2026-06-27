@@ -59,9 +59,9 @@ class TestTenantPriority:
 
 
 class TestAlgorithmsEndpoint:
-    def test_lists_eight_presets(self, client):
+    def test_lists_nine_presets(self, client):
         algos = client.get(f"{API}/algorithms").json()["algorithms"]
-        assert len(algos) == 8
+        assert len(algos) == 9
         assert all({"id", "name", "logic"} <= set(a.keys()) for a in algos)
 
 
