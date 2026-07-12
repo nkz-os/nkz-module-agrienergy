@@ -52,7 +52,7 @@
       "applyCustom": "Apply override",
       "confirmStow": "Confirm stow position? Tracker will move to -60° (stow position).",
       "confirmTrack": "Confirm sun tracking? Tracker will move to 0° tilt, 180° azimuth.",
-      "confirmCustom": "Confirm manual override? Tilt: {tilt}°, Azimuth: {azimuth}°.",
+      "confirmCustom": "Confirm manual override? Tilt: {{tilt}}°, Azimuth: {{azimuth}}°.",
       "confirm": "Confirm",
       "overrideSent": "Override sent successfully",
       "overrideError": "Error sending override"

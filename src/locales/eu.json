@@ -52,7 +52,7 @@
       "applyCustom": "Override-a aplikatu",
       "confirmStow": "Posizio segurua berretsi? Trackerra -60°-ra mugituko da (biltegiratze-posizioa).",
       "confirmTrack": "Eguzki-jarraipena berretsi? Trackerra 0° inklinaziora eta 180° azimutera mugituko da.",
-      "confirmCustom": "Eskuzko override-a berretsi? Inklinazioa: {tilt}°, Azimuta: {azimuth}°.",
+      "confirmCustom": "Eskuzko override-a berretsi? Inklinazioa: {{tilt}}°, Azimuta: {{azimuth}}°.",
       "confirm": "Berretsi",
       "overrideSent": "Override-a behar bezala bidali da",
       "overrideError": "Errorea override-a bidaltzean"

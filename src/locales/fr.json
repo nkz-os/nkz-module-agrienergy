@@ -52,7 +52,7 @@
       "applyCustom": "Appliquer l'override",
       "confirmStow": "Confirmer la position de sécurité ? Le tracker se déplacera à -60° (position de repli).",
       "confirmTrack": "Confirmer le suivi solaire ? Le tracker se déplacera à 0° d'inclinaison, 180° d'azimut.",
-      "confirmCustom": "Confirmer l'override manuel ? Inclinaison : {tilt}°, Azimut : {azimuth}°.",
+      "confirmCustom": "Confirmer l'override manuel ? Inclinaison : {{tilt}}°, Azimut : {{azimuth}}°.",
       "confirm": "Confirmer",
       "overrideSent": "Override envoyé avec succès",
       "overrideError": "Erreur lors de l'envoi de l'override"
