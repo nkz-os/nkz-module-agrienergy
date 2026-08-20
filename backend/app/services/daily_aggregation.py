@@ -9,7 +9,7 @@ from typing import Any
 from app.services.energy_integrator import trapezoidal_wh
 from app.services.finbridge_client import FinBridgeEmitter
 from app.services.ngsi_helpers import ref_agri_parcel_from_entity
-from app.services.orion import get_orion, prop
+from app.services.orion import get_orion, prop, resolve_device_ref
 from app.services.timeseries_client import TimeseriesReaderClient
 
 logger = logging.getLogger(__name__)
@@ -24,10 +24,7 @@ def _day_window(target_day: date) -> tuple[datetime, datetime]:
 
 
 def _ref_device_id(tracker: dict) -> str | None:
-    ref = tracker.get("refDevice", {}).get("value") or tracker.get("refDevice")
-    if isinstance(ref, str) and ref.strip():
-        return ref.strip()
-    return None
+    return resolve_device_ref(tracker)
 
 
 async def aggregate_tracker_day(

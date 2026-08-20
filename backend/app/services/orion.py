@@ -40,6 +40,26 @@ def rel(target: str) -> dict:
     return {"type": "Relationship", "object": target}
 
 
+def resolve_device_ref(entity: dict) -> str | None:
+    """Resolve a tracker's device URN from hasDevice, falling back to refDevice.
+
+    `hasDevice` is the SDM relationship and the platform standard; `refDevice` is
+    the deprecated ref<Type> Property. This module only reads the attribute — the
+    writer lives with whatever provisions the tracker — so both spellings have to
+    work until every writer has moved (Expand and Contract).
+
+    Accepts the normalized forms (`object` for a Relationship, `value` for a
+    Property) and the flat string that options=keyValues returns.
+    """
+    for attr in ("hasDevice", "refDevice"):
+        raw = entity.get(attr)
+        if isinstance(raw, dict):
+            raw = raw.get("object") if "object" in raw else raw.get("value")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
 async def get_entity_or_none(client: OrionClient, entity_id: str) -> Optional[dict]:
     """404 -> None; other HTTP errors propagate (callers decide 502 vs skip)."""
     try:
