@@ -13,7 +13,7 @@ from app.services.device_command_client import DeviceCommandClient
 from app.services.intelligence_client import IntelligenceClient
 from app.services.mpc_context import enrich_mpc_context
 from app.services.ngsi_helpers import build_telemetry_for_intelligence
-from app.services.orion import get_entity_or_none, prop
+from app.services.orion import get_entity_or_none, prop, resolve_device_ref
 from app.services.signal_resolver import (
     context_from_flat_sensors,
     forced_stow_orientation,
@@ -260,10 +260,9 @@ async def evaluate_and_actuate_tracker(
         "controlStatus": prop(control_status),
     }
 
-    ref_device = tracker.get("refDevice", {}).get("value") or tracker.get("refDevice")
-    has_device = isinstance(ref_device, str) and bool(ref_device.strip())
+    ref_device = resolve_device_ref(tracker)
 
-    if not has_device:
+    if ref_device is None:
         await orion.append_entity_attrs(tracker_id, {**intent_attrs, **state_attrs})
         return
 
