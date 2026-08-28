@@ -11,6 +11,7 @@ from app.middleware import get_notification_tenant
 from app.models.ngsi import NGSILDSubscriptionPayload
 from app.services.intelligence_client import IntelligenceClient
 from app.services.orion import get_orion
+from app.services.subscriptions import PV_TYPE
 from app.services.tracker_evaluator import evaluate_and_actuate_tracker
 
 logger = logging.getLogger(__name__)
@@ -73,10 +74,10 @@ async def process_ngsild_notification(
                     ghi = float(entity["solarRadiation"].get("value", ghi))
                 trackers = list(await orion.query_entities(type="AgriEnergyTracker", limit=500))
                 trackers += await orion.query_entities(
-                    type="https://saref.etsi.org/saref4agri/PhotovoltaicInstallation", limit=500)
+                    type=PV_TYPE, limit=500)
             elif entity_type in (
                 "AgriEnergyTracker",
-                "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation",
+                PV_TYPE,
             ):
                 trackers = [entity]
             else:

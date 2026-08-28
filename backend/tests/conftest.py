@@ -15,7 +15,7 @@ from app.middleware import TokenPayload, get_current_user
 
 API = "/api/agrienergy"
 TENANT = "asociacion-allotarra"
-PV_TYPE = "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"
+PV_TYPE = "PhotovoltaicInstallation"
 
 
 # ── Fake Orion (SDK OrionClient surface) ────────────────────────────────────

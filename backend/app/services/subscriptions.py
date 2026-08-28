@@ -16,7 +16,7 @@ from app.services.orion import _strip_ngsi_path
 
 logger = logging.getLogger(__name__)
 
-PV_TYPE = "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"
+PV_TYPE = "PhotovoltaicInstallation"
 _ensured: set[str] = set()
 
 

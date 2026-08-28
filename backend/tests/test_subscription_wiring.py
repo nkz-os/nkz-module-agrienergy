@@ -28,7 +28,7 @@ def test_get_parks_creates_subscriptions_once(client, orion_world):
     types = {s["entities"][0]["type"] for _, s in orion_world.created_subscriptions}
     assert types == {
         "WeatherObserved", "AgriEnergyTracker",
-        "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation"}
+        "PhotovoltaicInstallation"}
     tenants = {t for t, _ in orion_world.created_subscriptions}
     assert tenants == {TENANT}
 
@@ -67,3 +67,16 @@ def test_orion_down_endpoint_still_works(client, orion_world):
     # and nothing got memoized -> retried next request
     from app.services import subscriptions
     assert subscriptions._ensured == set()
+
+
+def test_pv_type_is_canonical_term_not_iri(client, orion_world):
+    """Regression: PV_TYPE must be the bare canonical term, not a full IRI."""
+    from app.services.subscriptions import PV_TYPE as PV_TYPE_PROD
+    from tests.conftest import PV_TYPE as PV_TYPE_TEST
+
+    # The canonical term should not contain "://" (which marks an IRI)
+    assert "://" not in PV_TYPE_PROD, (
+        f"PV_TYPE '{PV_TYPE_PROD}' is an IRI, not a canonical term"
+    )
+    # The test constant should match
+    assert PV_TYPE_TEST == PV_TYPE_PROD

@@ -10,11 +10,12 @@ from app.services.energy_integrator import trapezoidal_wh
 from app.services.finbridge_client import FinBridgeEmitter
 from app.services.ngsi_helpers import ref_agri_parcel_from_entity
 from app.services.orion import get_orion, prop, resolve_device_ref
+from app.services.subscriptions import PV_TYPE
 from app.services.timeseries_client import TimeseriesReaderClient
 
 logger = logging.getLogger(__name__)
 
-TRACKER_TYPES = ("AgriEnergyTracker", "https://saref.etsi.org/saref4agri/PhotovoltaicInstallation")
+TRACKER_TYPES = ("AgriEnergyTracker", PV_TYPE)
 
 
 def _day_window(target_day: date) -> tuple[datetime, datetime]:
