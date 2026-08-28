@@ -86,6 +86,19 @@ class FakeOrionClient:
             raise _http_error(503, "subs")
         return list(self.world.subscriptions)
 
+    async def query_all_subscriptions(self):
+        """Mirrors OrionClient: follows Orion's pagination to the end.
+
+        SubscriptionRegistrar switched to this in nkz-platform-sdk 0.8.1 — a
+        capped listing made a service unable to find its own subscriptions and
+        recreate them every cycle. The fake holds one page, so there is nothing
+        to paginate, but it must offer the method or the registrar's dedup
+        silently fails open and recreates everything.
+        """
+        if self.world.fail_all:
+            raise _http_error(503, "subs")
+        return list(self.world.subscriptions)
+
     async def create_subscription(self, subscription: dict):
         if self.world.fail_all:
             raise _http_error(503, "subs")
