@@ -100,11 +100,24 @@ class FakeOrionClient:
         return list(self.world.subscriptions)
 
     async def create_subscription(self, subscription: dict):
+        """Mirrors the real broker: a duplicate subscription id is rejected with 409.
+
+        Since nkz-platform-sdk 0.8.2 the registrar no longer dedups by listing and
+        comparing descriptions — it POSTs with a deterministic id and lets Orion
+        arbitrate, which is what makes concurrent ensure cycles safe. A fake that
+        accepts every create would let a duplicate through unnoticed, so it has to
+        model the rejection.
+        """
         if self.world.fail_all:
             raise _http_error(503, "subs")
+        sub_id = subscription.get("id")
+        if sub_id and any(
+            existing.get("id") == sub_id for existing in self.world.subscriptions
+        ):
+            raise _http_error(409, sub_id)
         self.world.subscriptions.append(subscription)
         self.world.created_subscriptions.append((self.tenant_id, subscription))
-        return "/ngsi-ld/v1/subscriptions/urn:ngsi-ld:Subscription:test"
+        return f"/ngsi-ld/v1/subscriptions/{sub_id or 'urn:ngsi-ld:Subscription:test'}"
 
     async def close(self):
         pass

@@ -37,13 +37,20 @@ def test_get_parks_creates_subscriptions_once(client, orion_world):
     assert len(orion_world.created_subscriptions) == 3
 
 
-def test_existing_subscriptions_deduped_by_description(client, orion_world):
+def test_existing_subscriptions_are_not_duplicated_after_a_restart(client, orion_world):
+    """A restarted pod must not add a second copy of a subscription it already has.
+
+    Since SDK 0.8.2 the guard is the deterministic subscription id: the re-created
+    POST collides with the existing one and the broker answers 409, which the
+    registrar counts as skipped. It is no longer a description comparison, so this
+    asserts the outcome — no new writes — rather than the old mechanism.
+    """
     client.get(f"{API}/parks")
     created_first = len(orion_world.created_subscriptions)
     from app.services import subscriptions
     subscriptions._ensured.clear()  # simulate pod restart
     client.get(f"{API}/parks")
-    assert len(orion_world.created_subscriptions) == created_first  # dedup by description
+    assert len(orion_world.created_subscriptions) == created_first
 
 
 def test_create_park_also_ensures(client, orion_world):
