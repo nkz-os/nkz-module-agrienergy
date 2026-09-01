@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from app.config import get_settings
 from app.engines.elevation import ElevationService, ElevationUnavailableError
 
 POS = [(-2.0, 43.3), (-2.001, 43.301)]
@@ -78,6 +79,21 @@ async def test_lidar_error_falls_to_eu_elevation(monkeypatch):
     install_transport(monkeypatch, handler)
     out = await ElevationService("t").get_elevations(POS, parcel_id="urn:p1")
     assert out == [33.0, 33.0]
+
+
+@pytest.mark.asyncio
+async def test_eu_elevation_sends_internal_secret(monkeypatch):
+    """eu-elevation /point requires X-Internal-Service-Secret (auth gate)."""
+    monkeypatch.setattr(get_settings(), "internal_service_secret", "test-secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "/api/elevation/point" in str(request.url)
+        assert request.headers.get("X-Internal-Service-Secret") == "test-secret"
+        return httpx.Response(200, json={"elevation_m": 123.0})
+
+    install_transport(monkeypatch, handler)
+    out = await ElevationService("t").get_elevations(POS)
+    assert out == [123.0, 123.0]
 
 
 @pytest.mark.asyncio

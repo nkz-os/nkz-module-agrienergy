@@ -12,6 +12,8 @@ from typing import List, Tuple, Optional
 
 import httpx
 
+from app.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -182,10 +184,14 @@ class ElevationService:
         self, client: httpx.AsyncClient, lat: float, lon: float
     ) -> float:
         """Query a single elevation point from eu-elevation. Raises on error."""
+        headers = {"X-Tenant-ID": self._tenant_id}
+        secret = get_settings().internal_service_secret
+        if secret:
+            headers["X-Internal-Service-Secret"] = secret
         resp = await client.get(
             ELEVATION_API_URL,
             params={"lat": lat, "lon": lon},
-            headers={"X-Tenant-ID": self._tenant_id},
+            headers=headers,
         )
         resp.raise_for_status()
         data = resp.json()
