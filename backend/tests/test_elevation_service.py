@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from app.engines.elevation import ElevationService
+from app.engines.elevation import ElevationService, ElevationUnavailableError
 
 POS = [(-2.0, 43.3), (-2.001, 43.301)]
 
@@ -78,6 +78,35 @@ async def test_lidar_error_falls_to_eu_elevation(monkeypatch):
     install_transport(monkeypatch, handler)
     out = await ElevationService("t").get_elevations(POS, parcel_id="urn:p1")
     assert out == [33.0, 33.0]
+
+
+@pytest.mark.asyncio
+async def test_eu_elevation_null_returns_failsafe_zeros(monkeypatch):
+    """eu-elevation may answer elevation_m:null (status unavailable); must not raise."""
+    def handler(request):
+        assert "/api/elevation/point" in str(request.url)
+        return httpx.Response(
+            200, json={"elevation_m": None, "status": "unavailable"}
+        )
+
+    install_transport(monkeypatch, handler)
+    out = await ElevationService("t").get_elevations(POS)
+    assert out == [0.0, 0.0]  # failsafe, never raises, never None
+
+
+@pytest.mark.asyncio
+async def test_query_single_raises_on_null_elevation(monkeypatch):
+    """Null elevation is surfaced explicitly as ElevationUnavailableError, not a TypeError."""
+    def handler(request):
+        return httpx.Response(
+            200, json={"elevation_m": None, "status": "unavailable"}
+        )
+
+    install_transport(monkeypatch, handler)
+    svc = ElevationService("t")
+    with pytest.raises(ElevationUnavailableError):
+        async with httpx.AsyncClient() as client:
+            await svc._query_single(client, lat=43.3, lon=-2.0)
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+
+class ElevationUnavailableError(Exception):
+    """Raised when a DEM source answers without a usable elevation (elevation_m is null)."""
+
+
 # Internal platform services (cluster-internal, no auth needed beyond tenant header)
 ELEVATION_API_URL = "http://elevation-api-service:80/api/elevation/point"
 LIDAR_API_URL = "http://nkz-module-lidar-api-service:80/api/lidar"
@@ -157,7 +162,12 @@ class ElevationService:
             results = await asyncio_gather(*tasks, return_exceptions=True)
 
         for idx, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, ElevationUnavailableError):
+                logger.debug(
+                    "elevation unavailable for idx %d: %s", idx, result
+                )
+                elevation_by_idx[idx] = 0.0
+            elif isinstance(result, Exception):
                 logger.debug("elevation query failed for idx %d: %s", idx, result)
                 elevation_by_idx[idx] = 0.0
             else:
@@ -179,7 +189,12 @@ class ElevationService:
         )
         resp.raise_for_status()
         data = resp.json()
-        return float(data.get("elevation_m", 0.0))
+        elev = data.get("elevation_m")
+        if elev is None:
+            raise ElevationUnavailableError(
+                f"elevation unavailable at lat={lat} lon={lon}"
+            )
+        return float(elev)
 
 
 # ── compat shim for Python < 3.11 ──────────────────────────────────────────
