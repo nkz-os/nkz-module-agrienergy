@@ -32,7 +32,7 @@ class TestNotifyQueueDepth:
             json=make_notification([weather_event()]),
             headers={"NGSILD-Tenant": "asociacion-allotarra"},
         )
-        assert r.status_code == 200
+        assert r.status_code == 204
         metrics = anon_client.get("/metrics").text
         assert "agrienergy_notify_queue_depth 0.0" in metrics
 

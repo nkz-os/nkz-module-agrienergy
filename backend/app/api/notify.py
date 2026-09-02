@@ -99,13 +99,23 @@ async def process_ngsild_notification(
         dequeue_notify_batch()
 
 
-@router.post("/notify", status_code=status.HTTP_200_OK)
+@router.post("/notify", status_code=status.HTTP_204_NO_CONTENT)
 async def process_ngsild_notification_endpoint(
     payload: NGSILDSubscriptionPayload,
     background_tasks: BackgroundTasks,
     tenant_id: str = Depends(get_notification_tenant),
 ):
-    """Orion-LD webhook: ack-fast, background parallel tracker evaluation."""
-    logger.info("NGSI-LD notification %s (tenant=%s)", payload.subscriptionId, tenant_id)
+    """Orion-LD webhook: ack-fast, background parallel tracker evaluation.
+
+    Answers 204 with no body: Orion-LD looks for a capitalised ``Content-Length:``
+    with a case-sensitive ``strstr`` and only waives it on 204, while uvicorn always
+    emits the header lower-cased. A 200 + body is therefore counted as a failed
+    notification, and three consecutive failures deactivate the subscription.
+    """
+    logger.info(
+        "NGSI-LD notification %s (tenant=%s, entities=%d)",
+        payload.subscriptionId,
+        tenant_id,
+        len(payload.data),
+    )
     background_tasks.add_task(process_ngsild_notification, tenant_id, payload)
-    return {"status": "accepted", "entities": len(payload.data)}
