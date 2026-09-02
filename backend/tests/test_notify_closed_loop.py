@@ -27,13 +27,12 @@ class TestNotifyAuth:
         orion_world.add(make_parcel())
         orion_world.add(make_tracker(activeAlgorithm={"type": "Property", "value": CONST_RULE}))
         r = notify(anon_client, [weather_event()])
-        assert r.status_code == 200
-        assert r.json()["status"] == "accepted"
+        assert r.status_code == 204
 
     def test_fiware_service_fallback(self, anon_client, orion_world):
         r = anon_client.post(NOTIFY, json=make_notification([weather_event()]),
                              headers={"Fiware-Service": TENANT})
-        assert r.status_code == 200
+        assert r.status_code == 204
 
     def test_missing_tenant_header_400(self, anon_client, orion_world):
         assert notify(anon_client, [weather_event()], tenant=None).status_code == 400
@@ -55,7 +54,7 @@ class TestClosedLoop:
     def test_weather_event_actuates_tracker(self, anon_client, orion_world):
         self._seed(orion_world)
         r = notify(anon_client, [weather_event()])
-        assert r.status_code == 200
+        assert r.status_code == 204
         # CONST_RULE with default ghi=800 -> tilt 30 / azimuth 170
         tenant, eid, attrs = orion_world.appended[-1]
         assert (tenant, eid) == (TENANT, T1)
@@ -95,7 +94,7 @@ class TestClosedLoop:
     def test_direct_tracker_notification(self, anon_client, orion_world):
         tracker = self._seed(orion_world)
         r = notify(anon_client, [tracker])
-        assert r.status_code == 200
+        assert r.status_code == 204
         assert orion_world.appended  # actuated without a WeatherObserved trigger
 
     def test_pv_installation_type_processed(self, anon_client, orion_world):
@@ -109,7 +108,7 @@ class TestClosedLoop:
 
     def test_irrelevant_entity_type_ignored(self, anon_client, orion_world):
         r = notify(anon_client, [{"id": "urn:x", "type": "AgriCrop"}])
-        assert r.status_code == 200
+        assert r.status_code == 204
         assert orion_world.appended == []
 
     def test_corrupt_tracker_does_not_abort_batch(self, anon_client, orion_world):
@@ -119,7 +118,7 @@ class TestClosedLoop:
         orion_world.add(bad)
         good = self._seed(orion_world)
         r = notify(anon_client, [weather_event()])
-        assert r.status_code == 200
+        assert r.status_code == 204
         assert any(eid == T1 for _, eid, _ in orion_world.appended)  # good one actuated
 
     def test_rotation_axis_locks_azimuth(self, anon_client, orion_world):
@@ -133,7 +132,7 @@ class TestClosedLoop:
         FakeDeviceCommand.fail = True
         self._seed(orion_world, refDevice={"type": "Property", "value": "dev-1"})
         r = notify(anon_client, [weather_event()])
-        assert r.status_code == 200
+        assert r.status_code == 204
         # Intent recorded, but state NOT updated: the panel did not move.
         assert len(orion_world.appended) == 1
         _, _, attrs = orion_world.appended[0]
@@ -168,7 +167,7 @@ class TestSDMExtraction:
         del t["panelWidth"], t["panelLength"]
         t["panelDimension"] = {"type": "Property", "value": {"width": 3.0, "length": 5.0}}
         orion_world.add(t)
-        assert notify(anon_client, [weather_event()]).status_code == 200
+        assert notify(anon_client, [weather_event()]).status_code == 204
         assert orion_world.appended  # processed without panelWidth/panelLength
 
     def test_model_rotation_orientation_fallback(self, anon_client, orion_world):
@@ -192,14 +191,14 @@ class TestSDMExtraction:
                 "coordinates": [[-2.0, 43.3], [-2.0001, 43.3]]}},
         )
         orion_world.add(t)
-        assert notify(anon_client, [weather_event()]).status_code == 200
+        assert notify(anon_client, [weather_event()]).status_code == 204
         assert orion_world.appended  # array path completed
 
     def test_missing_parcel_uses_terrain_defaults(self, anon_client, orion_world):
         # parcel NOT seeded -> get_entity 404 -> defaults, no crash
         orion_world.add(make_tracker(
             activeAlgorithm={"type": "Property", "value": CONST_RULE}))
-        assert notify(anon_client, [weather_event()]).status_code == 200
+        assert notify(anon_client, [weather_event()]).status_code == 204
 
 
 class TestBiologyFailSafe:
@@ -283,7 +282,7 @@ class TestMagicRadiationDefaults:
         orion_world.add(make_tracker(
             activeAlgorithm={"type": "Property", "value": CONST_RULE}))
         r = notify(anon_client, [weather_event()])  # no solarRadiation attr
-        assert r.status_code == 200
+        assert r.status_code == 204
         assert orion_world.appended[-1][2]["targetTilt"]["value"] == 30.0  # ghi=800 path
 
 
@@ -297,10 +296,8 @@ class TestNotifyAckFast:
                 activeAlgorithm={"type": "Property", "value": CONST_RULE},
             ))
         r = notify(anon_client, [weather_event()])
-        body = r.json()
-        assert r.status_code == 200
-        assert body["status"] == "accepted"
-        assert body["entities"] == 1
-        assert "trackers" not in body
-        assert "errors" not in body
+        assert r.status_code == 204
+        # An empty body cannot leak per-tracker counters, so the ack-fast
+        # contract now holds by construction.
+        assert r.content == b""
         assert len(orion_world.appended) >= 50  # TestClient runs background before return

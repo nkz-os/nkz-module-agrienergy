@@ -48,9 +48,8 @@ class TestNotifyAckLatency:
         )
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
-        assert r.status_code == 200
-        body = r.json()
-        assert body["status"] == "accepted"
+        assert r.status_code == 204
+        assert r.content == b""
         assert elapsed_ms < ACK_FAST_BUDGET_MS, (
             f"/notify ack took {elapsed_ms:.1f}ms (budget {ACK_FAST_BUDGET_MS}ms)"
         )
