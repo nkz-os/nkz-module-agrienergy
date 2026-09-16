@@ -8,6 +8,7 @@ subscription description in Orion.
 """
 
 import logging
+import os
 
 from nkz_platform_sdk.subscriptions import SubscriptionRegistrar
 
@@ -22,6 +23,7 @@ _ensured: set[str] = set()
 
 def _build_registrar() -> SubscriptionRegistrar:
     settings = get_settings()
+    internal_service_secret = os.getenv("INTERNAL_SERVICE_SECRET", "")
     return SubscriptionRegistrar(
         orion_url=_strip_ngsi_path(settings.context_broker_url),
         notification_url=settings.notification_url,
@@ -31,6 +33,10 @@ def _build_registrar() -> SubscriptionRegistrar:
             {"type": PV_TYPE, "throttling": 30},
         ],
         module_name="agrienergy",
+        notification_headers=(
+            {"X-Internal-Service-Secret": internal_service_secret}
+            if internal_service_secret else None
+        ),
     )
 
 
