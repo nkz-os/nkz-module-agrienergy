@@ -1,12 +1,15 @@
 """
-Ensure-on-use Orion-LD subscription registration via SDK SubscriptionRegistrar.
+Orion-LD subscription registration via SDK SubscriptionRegistrar.
 
-The module has no tenant enumeration source (no PG), so subscriptions are
-ensured the first time each tenant touches the parks endpoints in this
-process. Idempotent across pods/restarts: the registrar dedups by
-subscription description in Orion.
+Registered at startup and re-converged periodically for every tenant with the
+module installed and enabled, so a tenant's subscriptions exist before anyone
+opens the parks screens. The ensure-on-use path stays as a fallback for a
+tenant enabled between heal cycles. Idempotent: deterministic ids, and since
+SDK 0.8.5 an existing subscription is PATCHed onto the declaration (auth
+header, re-armed if Orion paused it).
 """
 
+import asyncio
 import logging
 import os
 
@@ -14,6 +17,7 @@ from nkz_platform_sdk.subscriptions import SubscriptionRegistrar
 
 from app.config import get_settings
 from app.services.orion import _strip_ngsi_path
+from app.tenants import installed_tenants
 
 logger = logging.getLogger(__name__)
 
@@ -58,3 +62,49 @@ async def ensure_subscriptions(tenant_id: str) -> None:
                     tenant_id, result.get("created", 0), result.get("skipped", 0))
     except Exception as e:
         logger.warning("ensure_subscriptions failed for %s: %s", tenant_id, e)
+
+
+async def _installed_tenants() -> list[str]:
+    return await asyncio.to_thread(installed_tenants)
+
+
+async def reconcile_once() -> dict | None:
+    """One pass over installed tenants. Never raises; None when it could not run."""
+    settings = get_settings()
+    if not settings.context_broker_url:
+        logger.error("CONTEXT_BROKER_URL not set — Orion subscriptions NOT registered")
+        return None
+    if not os.getenv("INTERNAL_SERVICE_SECRET", ""):
+        logger.error(
+            "INTERNAL_SERVICE_SECRET not set — Orion subscriptions NOT registered; "
+            "/notify would reject every notification"
+        )
+        return None
+    try:
+        tenants = await _installed_tenants()
+    except Exception as e:  # noqa: BLE001 — a DB outage must not kill the service
+        logger.warning("Subscription reconcile skipped, tenant lookup failed: %s", e)
+        return None
+    result = await _build_registrar().ensure_all(tenants)
+    if not result.get("errors"):
+        _ensured.update(tenants)
+    logger.info(
+        "Subscriptions reconciled for %s: created=%d converged=%d errors=%d",
+        tenants, result.get("created", 0), result.get("converged", 0),
+        len(result.get("errors", [])),
+    )
+    for error in result.get("errors", []):
+        logger.warning("Subscription reconcile error: %s", error)
+    return result
+
+
+async def run_subscription_reconciler(interval_minutes: int) -> None:
+    """Reconcile now, then every `interval_minutes`. Never raises (until cancelled)."""
+    while True:
+        try:
+            await reconcile_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Subscription reconcile failed: %s", e)
+        await asyncio.sleep(interval_minutes * 60)

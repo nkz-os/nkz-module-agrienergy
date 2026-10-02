@@ -4,6 +4,7 @@ AgriEnergy Orchestrator Backend - FastAPI Application
 Main entry point for the backend service.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.logging_setup import configure_logging
 from app.api import router as api_router
+from app.services.subscriptions import run_subscription_reconciler
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +25,12 @@ async def lifespan(app: FastAPI):
     logger.info("%s v%s starting — prefix=%s debug=%s",
                 settings.app_name, settings.app_version,
                 settings.api_prefix, settings.debug)
-    
+    # Background: startup must not wait on Orion or the DB.
+    reconciler = asyncio.create_task(
+        run_subscription_reconciler(settings.subscription_heal_minutes)
+    )
     yield
+    reconciler.cancel()
     
     logger.info("%s shutting down", settings.app_name)
 

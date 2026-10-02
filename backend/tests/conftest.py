@@ -36,6 +36,7 @@ class OrionWorld:
         self.created: list[tuple[str, dict]] = []        # (tenant, entity)
         self.subscriptions: list[dict] = []
         self.created_subscriptions: list[tuple[str, dict]] = []
+        self.updated_subscriptions: list[tuple[str, str, dict]] = []
         self.tenants_seen: set[str] = set()
         self.fail_all = False  # simulate Orion down
 
@@ -118,6 +119,18 @@ class FakeOrionClient:
         self.world.subscriptions.append(subscription)
         self.world.created_subscriptions.append((self.tenant_id, subscription))
         return f"/ngsi-ld/v1/subscriptions/{sub_id or 'urn:ngsi-ld:Subscription:test'}"
+
+    async def update_subscription(self, subscription_id: str, fragment: dict):
+        """PATCH, as SDK >=0.8.5 issues after a 409 to converge the existing one."""
+        if self.world.fail_all:
+            raise _http_error(503, "subs")
+        for existing in self.world.subscriptions:
+            if existing.get("id") == subscription_id:
+                existing.update(fragment)
+                self.world.updated_subscriptions.append(
+                    (self.tenant_id, subscription_id, fragment))
+                return
+        raise _http_error(404, subscription_id)
 
     async def close(self):
         pass

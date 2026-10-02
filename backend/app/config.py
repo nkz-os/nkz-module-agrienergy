@@ -42,6 +42,8 @@ class Settings(BaseSettings):
 
     # /notify webhook URL announced in Orion-LD subscriptions (K8s env NOTIFICATION_URL).
     notification_url: str = "http://agrienergy-api-service:8000/api/agrienergy/notify"
+    # How often installed tenants' subscriptions are re-converged (see services/subscriptions.py).
+    subscription_heal_minutes: int = 60
 
     # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
     agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
