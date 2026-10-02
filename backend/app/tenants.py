@@ -50,6 +50,33 @@ def _discover_from_db() -> list[str]:
         return []
 
 
+def installed_tenants() -> list[str]:
+    """Tenants with agrienergy installed AND enabled — where its subscriptions belong.
+
+    Unlike `_discover_from_db`, raises on a DB failure instead of returning [],
+    so a caller can tell "no tenants" from "could not read tenants".
+    """
+    url = _postgres_url()
+    if not url:
+        raise RuntimeError("no POSTGRES credentials — cannot resolve installed tenants")
+    import psycopg2
+
+    conn = psycopg2.connect(url)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT tenant_id FROM tenant_installed_modules "
+            "WHERE module_id = 'agrienergy' AND is_enabled "
+            "AND tenant_id IS NOT NULL AND tenant_id != '' "
+            "ORDER BY tenant_id"
+        )
+        rows = [r[0] for r in cur.fetchall()]
+        cur.close()
+        return rows
+    finally:
+        conn.close()
+
+
 def discover_tenants(env_override_var: str = "AGGREGATION_TENANTS") -> list[str]:
     """Active tenants for daily aggregation cron.
 
