@@ -90,6 +90,11 @@ async def process_ngsild_notification(
             entity_type = entity.get("type", "")
             ghi, dni, dhi = 800.0, 600.0, 200.0
             if entity_type == "WeatherObserved":
+                _ds = entity.get("dailySummary") or {}
+                if _ds.get("value") is True:
+                    # Closed-day series entity: its solarRadiation is a day MEAN,
+                    # not instantaneous irradiance (#1043).
+                    continue
                 if "illuminance" in entity:
                     ghi = float(entity["illuminance"].get("value", ghi))
                 elif "solarRadiation" in entity:
