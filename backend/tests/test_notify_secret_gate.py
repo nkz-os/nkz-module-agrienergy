@@ -43,11 +43,18 @@ def test_gate_on_accepts_correct_secret(anon_client, monkeypatch):
     assert _post(anon_client, SECRET).status_code == 204
 
 
-def test_creator_sends_receiver_info_when_secret_set(monkeypatch):
+def test_creator_passes_secret_to_registrar_not_headers(monkeypatch):
+    """The registrar owns the receiver auth header; derived tokens follow the env flag."""
     monkeypatch.setenv("INTERNAL_SERVICE_SECRET", SECRET)
+    monkeypatch.delenv("NKZ_NOTIFY_DERIVED_TOKENS", raising=False)
     from app.services.subscriptions import _build_registrar
     registrar = _build_registrar()
-    assert registrar.notification_headers == {"X-Internal-Service-Secret": SECRET}
+    assert registrar.internal_secret == SECRET
+    assert registrar.derived_tokens is False
+    assert registrar.notification_headers == {}
+
+    monkeypatch.setenv("NKZ_NOTIFY_DERIVED_TOKENS", "true")
+    assert _build_registrar().derived_tokens is True
 
 
 def test_creator_omits_receiver_info_without_secret(monkeypatch):
@@ -55,3 +62,22 @@ def test_creator_omits_receiver_info_without_secret(monkeypatch):
     from app.services.subscriptions import _build_registrar
     registrar = _build_registrar()
     assert registrar.notification_headers == {}
+
+
+def test_derived_token_accepted_once_master_is_refused(anon_client, monkeypatch):
+    """The token bound to this tenant and host passes after the master is contracted;
+    the master and a token of another tenant do not."""
+    from nkz_platform_sdk.notify_auth import TOKEN_HEADER, notification_token
+
+    monkeypatch.setenv("NOTIFY_REQUIRE_INTERNAL_SECRET", "true")
+    monkeypatch.setenv("NKZ_NOTIFY_ACCEPT_MASTER", "false")
+    monkeypatch.setenv("INTERNAL_SERVICE_SECRET", SECRET)
+    # Starlette's TestClient sends Host: testserver; the token binds to that host.
+    token = notification_token(SECRET, TENANT, "testserver")
+    body = make_notification([])
+
+    ok = anon_client.post(NOTIFY, json=body, headers={"NGSILD-Tenant": TENANT, TOKEN_HEADER: token})
+    assert ok.status_code == 204
+    other = anon_client.post(NOTIFY, json=body, headers={"NGSILD-Tenant": "tenant-b", TOKEN_HEADER: token})
+    assert other.status_code == 401
+    assert _post(anon_client, SECRET).status_code == 401

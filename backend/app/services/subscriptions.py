@@ -13,6 +13,7 @@ import asyncio
 import logging
 import os
 
+from nkz_platform_sdk.notify_auth import derived_tokens_from_env
 from nkz_platform_sdk.subscriptions import SubscriptionRegistrar
 
 from app.config import get_settings
@@ -37,10 +38,11 @@ def _build_registrar() -> SubscriptionRegistrar:
             {"type": PV_TYPE, "throttling": 30},
         ],
         module_name="agrienergy",
-        notification_headers=(
-            {"X-Internal-Service-Secret": internal_service_secret}
-            if internal_service_secret else None
-        ),
+        # The registrar owns the receiver auth header: the master secret (legacy) or,
+        # with NKZ_NOTIFY_DERIVED_TOKENS on, a token bound to the tenant and this
+        # receiver so the broker never stores the master.
+        internal_secret=internal_service_secret or None,
+        derived_tokens=bool(internal_service_secret) and derived_tokens_from_env(),
     )
 
 

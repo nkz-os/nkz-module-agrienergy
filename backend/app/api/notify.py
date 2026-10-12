@@ -1,12 +1,12 @@
 """Orion-LD subscription webhook — closed-loop sensor -> algorithm -> actuator."""
 
 import asyncio
-import hmac
 import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from nkz_platform_sdk.notify_auth import accept_master_from_env, verify_notification
 
 from app.engines.shadow_engine import ShadowEngine
 from app.metrics import dequeue_notify_batch, enqueue_notify_batch, observe_tracker_eval
@@ -24,22 +24,25 @@ router = APIRouter(tags=["AgriEnergy Orchestrator"])
 NOTIFY_MAX_CONCURRENT_TRACKERS = 20
 
 
-def _reject_unauthenticated_notify(
-    x_internal_secret: Optional[str],
-) -> Optional[HTTPException]:
-    """401 unless the notification carries the internal secret (flag-gated).
+def _reject_unauthenticated_notify(headers) -> Optional[HTTPException]:
+    """401 unless the notification authenticates (flag-gated).
 
     Two-phase rollout: NOTIFY_REQUIRE_INTERNAL_SECRET stays off until subscription
     creators have converged to carry receiverInfo, then flips on with no code deploy.
+    Accepts the token bound to this tenant and host (nkz_platform_sdk.notify_auth)
+    and, until NKZ_NOTIFY_ACCEPT_MASTER is false, the master secret itself.
     """
     require = os.getenv("NOTIFY_REQUIRE_INTERNAL_SECRET", "").lower() in (
         "1", "true", "yes", "on"
     )
     if not require:
         return None
-    secret = os.getenv("INTERNAL_SERVICE_SECRET", "")
-    if not secret or not hmac.compare_digest(x_internal_secret or "", secret):
-        return HTTPException(status_code=401, detail="missing or invalid internal secret")
+    if not verify_notification(
+        headers,
+        secret=os.getenv("INTERNAL_SERVICE_SECRET", ""),
+        accept_master=accept_master_from_env(),
+    ):
+        return HTTPException(status_code=401, detail="missing or invalid notification credentials")
     return None
 
 
@@ -130,8 +133,8 @@ async def process_ngsild_notification(
 async def process_ngsild_notification_endpoint(
     payload: NGSILDSubscriptionPayload,
     background_tasks: BackgroundTasks,
+    request: Request,
     tenant_id: str = Depends(get_notification_tenant),
-    x_internal_secret: Optional[str] = Header(None, alias="X-Internal-Service-Secret"),
 ):
     """Orion-LD webhook: ack-fast, background parallel tracker evaluation.
 
@@ -140,7 +143,7 @@ async def process_ngsild_notification_endpoint(
     emits the header lower-cased. A 200 + body is therefore counted as a failed
     notification, and three consecutive failures deactivate the subscription.
     """
-    reject = _reject_unauthenticated_notify(x_internal_secret)
+    reject = _reject_unauthenticated_notify(request.headers)
     if reject:
         raise reject
 
