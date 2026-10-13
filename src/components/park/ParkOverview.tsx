@@ -2,6 +2,7 @@
  * ParkOverview — Park management and tracker overview table.
  * Shown when no entity is selected. Includes park selector, summary, tracker table, and create form.
  */
+import { API_ORIGIN } from '../../services/apiOrigin';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button } from '@nekazari/ui-kit';
 import { useTranslation, useViewerOptional } from '@nekazari/sdk';
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 
 function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+  return fetch(`${API_ORIGIN}${path}`, {
     credentials: 'include',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },

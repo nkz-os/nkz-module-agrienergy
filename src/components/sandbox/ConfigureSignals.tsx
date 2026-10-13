@@ -2,6 +2,7 @@
  * ConfigureSignals — Map algorithm context keys to platform entities/attributes.
  * Polished version with better grid layout, entity type icons, colored last values, clear buttons.
  */
+import { API_ORIGIN } from '../../services/apiOrigin';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@nekazari/ui-kit';
 import { useTranslation } from '@nekazari/sdk';
@@ -15,7 +16,7 @@ import {
 } from 'lucide-react';
 
 function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+  return fetch(`${API_ORIGIN}${path}`, {
     credentials: 'include',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },

@@ -2,13 +2,14 @@
  * ManualControls — Manual override buttons for tracker tilt/azimuth.
  * Sends overrides as static algorithm rules via PATCH /trackers/{id}/algorithm.
  */
+import { API_ORIGIN } from '../../services/apiOrigin';
 import React, { useState } from 'react';
 import { Button } from '@nekazari/ui-kit';
 import { useTranslation } from '@nekazari/sdk';
 import { ShieldAlert, Sun, SlidersHorizontal, Check, X } from 'lucide-react';
 
 function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+  return fetch(`${API_ORIGIN}${path}`, {
     credentials: 'include',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },

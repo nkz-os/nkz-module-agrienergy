@@ -6,6 +6,7 @@
  */
 
 import { NKZClient, useAuth } from '@nekazari/sdk';
+import { API_ORIGIN } from './apiOrigin';
 
 /**
  * Hook to get API client instance
@@ -15,7 +16,7 @@ export function useModuleApi() {
   const { getToken, tenantId } = useAuth();
   
   const client = new NKZClient({
-    baseUrl: '/api/agrienergy',
+    baseUrl: `${API_ORIGIN}/api/agrienergy`,
     getToken,
     getTenantId: () => tenantId,
   });

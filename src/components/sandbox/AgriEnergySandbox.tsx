@@ -4,6 +4,7 @@
  * - No entity selected: shows ParkOverview
  * - AgriEnergyTracker selected: shows TrackerDashboard + collapsible sections
  */
+import { API_ORIGIN } from '../../services/apiOrigin';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button } from '@nekazari/ui-kit';
 import { SlotShell } from '@nekazari/viewer-kit';
@@ -20,7 +21,7 @@ const agrienergyAccent = { base: '#F97316', soft: '#FFF7ED', strong: '#C2410C' }
 const STATUS_POLL_INTERVAL_MS = 10_000;
 
 function fetchWithAuth(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(path, {
+  return fetch(`${API_ORIGIN}${path}`, {
     credentials: 'include',
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
