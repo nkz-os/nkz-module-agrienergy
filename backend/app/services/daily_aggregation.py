@@ -153,7 +153,7 @@ async def run_daily_aggregation(
     """Run daily aggregation for all given tenants (or discover from env/DB)."""
     from app.tenants import discover_tenants
 
-    tenants = tenant_ids or discover_tenants()
+    tenants = tenant_ids or await discover_tenants()
     if not tenants:
         return {"status": "skipped", "reason": "no_tenants"}
 
