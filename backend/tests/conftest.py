@@ -37,6 +37,7 @@ class OrionWorld:
         self.subscriptions: list[dict] = []
         self.created_subscriptions: list[tuple[str, dict]] = []
         self.updated_subscriptions: list[tuple[str, str, dict]] = []
+        self.deleted_subscriptions: list[tuple[str, str]] = []
         self.tenants_seen: set[str] = set()
         self.fail_all = False  # simulate Orion down
 
@@ -119,6 +120,17 @@ class FakeOrionClient:
         self.world.subscriptions.append(subscription)
         self.world.created_subscriptions.append((self.tenant_id, subscription))
         return f"/ngsi-ld/v1/subscriptions/{sub_id or 'urn:ngsi-ld:Subscription:test'}"
+
+    async def delete_subscription(self, subscription_id: str):
+        """DELETE, as SubscriptionRegistrar.remove_all issues on uninstall. 404 if absent."""
+        if self.world.fail_all:
+            raise _http_error(503, "subs")
+        for existing in list(self.world.subscriptions):
+            if existing.get("id") == subscription_id:
+                self.world.subscriptions.remove(existing)
+                self.world.deleted_subscriptions.append((self.tenant_id, subscription_id))
+                return
+        raise _http_error(404, subscription_id)
 
     async def update_subscription(self, subscription_id: str, fragment: dict):
         """PATCH, as SDK >=0.8.5 issues after a 409 to converge the existing one."""

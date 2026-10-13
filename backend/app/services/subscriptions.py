@@ -1,10 +1,11 @@
 """
 Orion-LD subscription registration via SDK SubscriptionRegistrar.
 
-Registered at startup and re-converged periodically for every tenant with the
-module installed and enabled, so a tenant's subscriptions exist before anyone
-opens the parks screens. The ensure-on-use path stays as a fallback for a
-tenant enabled between heal cycles. Idempotent: deterministic ids, and since
+Converged at startup, periodically and on the install hint
+(/internal/lifecycle) onto where the platform says the module is installed
+(SDK reconcile_installations): created where enabled, ours removed where not,
+nothing touched when the platform cannot answer. The ensure-on-use path stays
+as a fallback for a tenant enabled between heal cycles. Idempotent: deterministic ids, and since
 SDK 0.8.5 an existing subscription is PATCHed onto the declaration (auth
 header, re-armed if Orion paused it).
 """
@@ -18,10 +19,10 @@ from nkz_platform_sdk.subscriptions import SubscriptionRegistrar
 
 from app.config import get_settings
 from app.services.orion import _strip_ngsi_path
-from app.tenants import installed_tenants
 
 logger = logging.getLogger(__name__)
 
+MODULE_ID = "agrienergy"
 PV_TYPE = "PhotovoltaicInstallation"
 _ensured: set[str] = set()
 
@@ -66,12 +67,19 @@ async def ensure_subscriptions(tenant_id: str) -> None:
         logger.warning("ensure_subscriptions failed for %s: %s", tenant_id, e)
 
 
-async def _installed_tenants() -> list[str]:
-    return await asyncio.to_thread(installed_tenants)
+_registrar: SubscriptionRegistrar | None = None
+
+
+def get_registrar() -> SubscriptionRegistrar:
+    """One registrar per process: its lock serializes heal and lifecycle hints."""
+    global _registrar
+    if _registrar is None:
+        _registrar = _build_registrar()
+    return _registrar
 
 
 async def reconcile_once() -> dict | None:
-    """One pass over installed tenants. Never raises; None when it could not run."""
+    """One pass over the platform's installs. Never raises; None when it could not run."""
     settings = get_settings()
     if not settings.context_broker_url:
         logger.error("CONTEXT_BROKER_URL not set — Orion subscriptions NOT registered")
@@ -82,20 +90,21 @@ async def reconcile_once() -> dict | None:
             "/notify would reject every notification"
         )
         return None
-    try:
-        tenants = await _installed_tenants()
-    except Exception as e:  # noqa: BLE001 — a DB outage must not kill the service
-        logger.warning("Subscription reconcile skipped, tenant lookup failed: %s", e)
-        return None
-    result = await _build_registrar().ensure_all(tenants)
-    if not result.get("errors"):
-        _ensured.update(tenants)
+    result = await get_registrar().reconcile_installations(MODULE_ID)
+    if "skipped" in result:
+        logger.warning("Subscription reconcile skipped: %s", result.get("reason"))
+        return result
+    ensured, removed = result["ensured"], result["removed"]
+    if removed["removed"]:
+        # A tenant lost its subscriptions: forget what the on-use path memoized,
+        # so a later re-enable is ensured again on first use.
+        _ensured.clear()
     logger.info(
-        "Subscriptions reconciled for %s: created=%d converged=%d errors=%d",
-        tenants, result.get("created", 0), result.get("converged", 0),
-        len(result.get("errors", [])),
+        "Subscriptions reconciled: created=%d converged=%d removed=%d errors=%d",
+        ensured.get("created", 0), ensured.get("converged", 0), removed["removed"],
+        len(ensured["errors"]) + len(removed["errors"]),
     )
-    for error in result.get("errors", []):
+    for error in ensured["errors"] + removed["errors"]:
         logger.warning("Subscription reconcile error: %s", error)
     return result
 
