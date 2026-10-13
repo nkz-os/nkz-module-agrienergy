@@ -8,10 +8,26 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
+from nkz_platform_sdk.crypto import generate_hmac_signature
 
 logger = logging.getLogger(__name__)
 
 FORECAST_TIMEOUT_S = 2.0
+
+
+def _weather_api_headers(tenant_id: str) -> dict[str, str]:
+    """Service identity for weather-api: the tenant plus the platform signature.
+
+    weather-api trusts X-Tenant-ID only when X-Auth-Signature verifies; a
+    service call has no user token, so the signed token is empty (SDK
+    convention). Without HMAC_SECRET the call goes unsigned and a backend
+    that requires the signature answers 401 (handled as a fallback below).
+    """
+    headers = {"X-Tenant-ID": tenant_id, "X-User-ID": "agrienergy-worker"}
+    secret = os.getenv("HMAC_SECRET", "")
+    if secret:
+        headers["X-Auth-Signature"] = generate_hmac_signature(secret, "", tenant_id)
+    return headers
 
 
 class ForecastClient:
@@ -41,7 +57,7 @@ class ForecastClient:
             resp = await self._client.get(
                 url,
                 params={"days": 1},
-                headers={"X-Tenant-ID": self.tenant_id},
+                headers=_weather_api_headers(self.tenant_id),
             )
             if resp.status_code != 200:
                 return _fallback(fallback_ghi, "weather-api-error")
