@@ -1,9 +1,11 @@
 """Closed loop /notify: header tenant, SDM extraction, fail-safes, idempotence, MQTT."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from tests.conftest import (
-    API, CONST_RULE, PV_TYPE, TENANT, FakeDeviceCommand, FakeIntelligence,
+    API, CONST_RULE, PV_TYPE, TENANT, FakeDeviceCommand,
     make_notification, make_parcel, make_tracker,
 )
 
@@ -201,25 +203,72 @@ class TestSDMExtraction:
         assert notify(anon_client, [weather_event()]).status_code == 204
 
 
-class TestBiologyFailSafe:
-    def test_intelligence_down_empty_biology(self, anon_client, orion_world):
-        FakeIntelligence.response = {}
-        rule = {"if": [{">": [{"var": ["biology.stress_index", 0]}, 0.8]},
-                       {"tilt": 70, "azimuth": 180}, {"tilt": 30, "azimuth": 170}]}
-        orion_world.add(make_parcel())
-        orion_world.add(make_tracker(activeAlgorithm={"type": "Property", "value": rule}))
-        notify(anon_client, [weather_event()])
-        # stress default 0 -> else-branch
-        assert orion_world.appended[-1][2]["targetTilt"]["value"] == 30.0
+STRESS_RULE = {"if": [{">": [{"var": ["biology.stress_index", 0]}, 0.8]},
+                      {"tilt": 70, "azimuth": 180}, {"tilt": -60, "azimuth": 180}]}
+PARCEL = "urn:ngsi-ld:AgriParcel:p1"
 
-    def test_intelligence_biology_drives_rule(self, anon_client, orion_world):
-        FakeIntelligence.response = {"stress_index": 0.95}
-        rule = {"if": [{">": [{"var": ["biology.stress_index", 0]}, 0.8]},
-                       {"tilt": 70, "azimuth": 180}, {"tilt": 30, "azimuth": 170}]}
+
+def assessment(parcel=PARCEL, *, index=0.9, fidelity="iot_sensor", age_s=60):
+    now = datetime.now(timezone.utc)
+    observed = now - timedelta(seconds=age_s)
+    return {
+        "id": f"urn:ngsi-ld:CropHealthAssessment:{parcel.rsplit(':', 1)[1]}-{now:%Y%m%d}",
+        "type": "CropHealthAssessment",
+        "hasAgriParcel": {"type": "Relationship", "object": parcel},
+        "waterStressIndex": {"type": "Property", "value": index},
+        "waterStressFidelity": {"type": "Property", "value": fidelity},
+        "waterStressObservedAt": {
+            "type": "Property", "value": observed.strftime("%Y-%m-%dT%H:%M:%SZ")},
+    }
+
+
+class TestCropHealthBiology:
+    def _seed(self, orion_world, **tracker_overrides):
         orion_world.add(make_parcel())
-        orion_world.add(make_tracker(activeAlgorithm={"type": "Property", "value": rule}))
+        return orion_world.add(make_tracker(
+            activeAlgorithm={"type": "Property", "value": STRESS_RULE},
+            **tracker_overrides))
+
+    def _tilt(self, orion_world):
+        return orion_world.appended[-1][2]["targetTilt"]["value"]
+
+    def test_fresh_iot_stress_drives_shading_tilt(self, anon_client, orion_world):
+        self._seed(orion_world)
+        orion_world.add(assessment(index=0.9))
         notify(anon_client, [weather_event()])
-        assert orion_world.appended[-1][2]["targetTilt"]["value"] == 70.0
+        assert self._tilt(orion_world) == 70.0
+
+    def test_no_crop_health_index_keeps_standby(self, anon_client, orion_world):
+        self._seed(orion_world)
+        notify(anon_client, [weather_event()])
+        assert self._tilt(orion_world) == -60.0
+
+    @pytest.mark.parametrize("kwargs", [
+        {"fidelity": "regional_proxy"},
+        {"fidelity": "unavailable"},
+        {"age_s": 7200},
+    ])
+    def test_non_actionable_state_keeps_standby(self, anon_client, orion_world, kwargs):
+        self._seed(orion_world)
+        orion_world.add(assessment(index=0.95, **kwargs))
+        notify(anon_client, [weather_event()])
+        assert self._tilt(orion_world) == -60.0
+
+    def test_tracker_without_parcel_skips_stress(self, anon_client, orion_world):
+        tracker = self._seed(orion_world)
+        del tracker["hasAgriParcel"]
+        orion_world.add(assessment(index=0.9))
+        notify(anon_client, [weather_event()])
+        assert self._tilt(orion_world) == -60.0
+        assert not any("CropHealthAssessment" in i for i in orion_world.read_ids)
+
+    def test_legacy_ref_relationship_is_read(self, anon_client, orion_world):
+        tracker = self._seed(orion_world)
+        del tracker["hasAgriParcel"]
+        tracker["refAgriParcel"] = {"type": "Relationship", "object": PARCEL}
+        orion_world.add(assessment(index=0.9))
+        notify(anon_client, [weather_event()])
+        assert self._tilt(orion_world) == 70.0
 
 
 class TestSignalMapping:

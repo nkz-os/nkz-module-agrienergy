@@ -1,6 +1,6 @@
 """
 Shared fixtures: app client with auth override, in-memory Orion world,
-fakes for Intelligence / DeviceCommand / Elevation, NGSI-LD entity factories.
+fakes for DeviceCommand / Elevation, NGSI-LD entity factories.
 
 Canonical test tenant is 'demo-coop' (WITH hyphen): the platform
 is hyphen-canonical and any tenant normalization regression must fail loudly.
@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app as fastapi_app
+from app.services import water_stress_reader
 from app.middleware import TokenPayload, get_current_user
 
 API = "/api/agrienergy"
@@ -40,6 +41,7 @@ class OrionWorld:
         self.deleted_subscriptions: list[tuple[str, str]] = []
         self.tenants_seen: set[str] = set()
         self.fail_all = False  # simulate Orion down
+        self.read_ids: list[str] = []  # entity ids requested through get_entity
 
     def add(self, entity: dict) -> dict:
         self.entities[entity["id"]] = entity
@@ -59,7 +61,8 @@ class FakeOrionClient:
             raise _http_error(503, "query")
         return [e for e in self.world.entities.values() if e.get("type") == type]
 
-    async def get_entity(self, entity_id: str):
+    async def get_entity(self, entity_id: str, options: str | None = None):
+        self.world.read_ids.append(entity_id)
         if self.world.fail_all:
             raise _http_error(503, entity_id)
         ent = self.world.entities.get(entity_id)
@@ -149,20 +152,6 @@ class FakeOrionClient:
 
 
 # ── Fakes for the other I/O clients ─────────────────────────────────────────
-
-class FakeIntelligence:
-    """Configurable evaluate_status; default = service down -> {} (fail-safe)."""
-
-    response: dict = {}
-    calls: list = []
-
-    async def evaluate_status(self, **kwargs):
-        FakeIntelligence.calls.append(kwargs)
-        return dict(FakeIntelligence.response)
-
-    async def evaluate_hydric_stress(self, *a, **kw):
-        return 0.0
-
 
 class FakeDeviceCommand:
     commands: list = []
@@ -274,12 +263,9 @@ def orion_world(monkeypatch):
         sdk_subs, "OrionClient",
         lambda tenant_id, base_url=None, context_url=None: FakeOrionClient(world, tenant_id),
     )
-    for target in (
-        "app.api.IntelligenceClient",
-        "app.api.notify.IntelligenceClient",
-        "app.services.tracker_evaluator.IntelligenceClient",
-    ):
-        monkeypatch.setattr(target, FakeIntelligence)
+    # Biology comes only from crop-health's published state (read through the
+    # fake Orion); no CropHealthAssessment in the world -> biology {}.
+    water_stress_reader.reset_cache()
     for target in (
         "app.api.DeviceCommandClient",
         "app.services.tracker_evaluator.DeviceCommandClient",
@@ -290,8 +276,6 @@ def orion_world(monkeypatch):
         "app.services.tracker_evaluator.ElevationService",
     ):
         monkeypatch.setattr(target, FakeElevation)
-    FakeIntelligence.response = {}
-    FakeIntelligence.calls = []
     FakeDeviceCommand.commands = []
     FakeDeviceCommand.fail = False
     FakeElevation.elevations = None

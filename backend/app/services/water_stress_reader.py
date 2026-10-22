@@ -164,18 +164,27 @@ async def fetch_crop_health_state(
     return state
 
 
+def gate_biology(
+    state: CropHealthState | None, *, max_age_s: int, now: datetime
+) -> tuple[dict[str, float], str]:
+    """Biology scalars plus the reason: ``ok``, ``no_state``, ``not_iot_sensor``, ``stale``."""
+    if state is None:
+        return {}, "no_state"
+    if state.fidelity != ACTIONABLE_FIDELITY:
+        return {}, "not_iot_sensor"
+    if state.stress_index is None or state.observed_at is None:
+        return {}, "no_state"
+    age_s = (now - state.observed_at).total_seconds()
+    if age_s < -MAX_FUTURE_SKEW_S:
+        return {}, "stale"
+    age_s = max(age_s, 0.0)
+    if age_s > max_age_s:
+        return {}, "stale"
+    return {"stress_index": state.stress_index}, "ok"
+
+
 def biology_from_state(
     state: CropHealthState | None, *, max_age_s: int, now: datetime
 ) -> dict[str, float]:
     """``{"stress_index": x}`` only for a fresh ``iot_sensor`` index, else ``{}``."""
-    if state is None or state.fidelity != ACTIONABLE_FIDELITY:
-        return {}
-    if state.stress_index is None or state.observed_at is None:
-        return {}
-    age_s = (now - state.observed_at).total_seconds()
-    if age_s < -MAX_FUTURE_SKEW_S:
-        return {}
-    age_s = max(age_s, 0.0)
-    if age_s > max_age_s:
-        return {}
-    return {"stress_index": state.stress_index}
+    return gate_biology(state, max_age_s=max_age_s, now=now)[0]

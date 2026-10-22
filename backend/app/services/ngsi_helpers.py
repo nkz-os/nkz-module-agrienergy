@@ -22,20 +22,15 @@ def get_control_status_from_tracker(tracker: dict) -> str:
     return raw if raw in ("ok", "degraded") else "ok"
 
 
-def build_telemetry_for_intelligence(context: dict) -> dict:
-    """Map nested algorithm context to Intelligence evaluate_status telemetry keys."""
-    telemetry: dict = {}
-    sensors = context.get("sensors") or {}
-    weather = context.get("weather") or {}
-    for key, val in [
-        ("soil_moisture", sensors.get("soil_moisture") or weather.get("soil_moisture")),
-        ("leaf_temperature", sensors.get("leaf_temperature")),
-        ("dendrometer_value", sensors.get("dendrometer_value") or sensors.get("dendrometer_shrinkage")),
-        ("par_under_panel", sensors.get("par_under_panel")),
-    ]:
-        if val is not None and isinstance(val, (int, float)):
-            telemetry[key] = float(val)
-    return telemetry
+def tracker_parcel_urn(tracker: dict) -> str | None:
+    """Parcel URN from ``hasAgriParcel`` / ``refAgriParcel`` (Relationship or plain string)."""
+    for attr in ("hasAgriParcel", "refAgriParcel"):
+        raw = tracker.get(attr)
+        if isinstance(raw, dict):
+            raw = raw.get("object")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
 
 
 def numeric_attributes_from_entity(entity: dict) -> list[tuple[str, float | None]]:

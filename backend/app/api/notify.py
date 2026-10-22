@@ -12,7 +12,6 @@ from app.engines.shadow_engine import ShadowEngine
 from app.metrics import dequeue_notify_batch, enqueue_notify_batch, observe_tracker_eval
 from app.middleware import get_notification_tenant
 from app.models.ngsi import NGSILDSubscriptionPayload
-from app.services.intelligence_client import IntelligenceClient
 from app.services.orion import get_orion
 from app.services.subscriptions import PV_TYPE
 from app.services.tracker_evaluator import evaluate_and_actuate_tracker
@@ -48,7 +47,6 @@ def _reject_unauthenticated_notify(headers) -> Optional[HTTPException]:
 
 async def _evaluate_tracker_safe(
     orion,
-    intelligence_client,
     shadow_engine,
     tenant_id: str,
     tracker: dict,
@@ -59,7 +57,7 @@ async def _evaluate_tracker_safe(
     try:
         with observe_tracker_eval():
             await evaluate_and_actuate_tracker(
-                orion, intelligence_client, shadow_engine,
+                orion, shadow_engine,
                 tenant_id, tracker, ghi, dni, dhi,
             )
         return True
@@ -75,7 +73,6 @@ async def process_ngsild_notification(
 ) -> None:
     """Background worker: resolve trackers and actuate in parallel."""
     orion = get_orion(tenant_id)
-    intelligence_client = IntelligenceClient()
     shadow_engine = ShadowEngine()
     sem = asyncio.Semaphore(NOTIFY_MAX_CONCURRENT_TRACKERS)
     tasks: list[asyncio.Task] = []
@@ -83,7 +80,7 @@ async def process_ngsild_notification(
     async def _run_one(tracker: dict, ghi: float, dni: float, dhi: float) -> bool:
         async with sem:
             return await _evaluate_tracker_safe(
-                orion, intelligence_client, shadow_engine,
+                orion, shadow_engine,
                 tenant_id, tracker, ghi, dni, dhi,
             )
 
