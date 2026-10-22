@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from app.services import water_stress_reader as wsr
@@ -82,103 +83,154 @@ def _entity(eid, index=0.5, fidelity="iot_sensor", observed="2026-10-22T11:00:00
     return e
 
 
-def _orion(entities):
+def _http_error(status):
+    req = httpx.Request("GET", "http://broker.invalid/e")
+    return httpx.HTTPStatusError(str(status), request=req, response=httpx.Response(status, request=req))
+
+
+def _orion(by_id):
+    """by_id: entity id -> entity dict | Exception; missing id -> 404."""
+    async def get_entity(entity_id, options=None):
+        item = by_id.get(entity_id)
+        if item is None:
+            raise _http_error(404)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
     orion = AsyncMock()
-    orion.query_entities = AsyncMock(return_value=entities)
+    orion.get_entity = AsyncMock(side_effect=get_entity)
     return orion
 
 
+TODAY = f"urn:ngsi-ld:CropHealthAssessment:p-1-{NOW:%Y%m%d}"
+YDAY = f"urn:ngsi-ld:CropHealthAssessment:p-1-{NOW - timedelta(days=1):%Y%m%d}"
+
+
+async def _fetch(orion, parcel=PARCEL, tenant="tenant-a"):
+    return await fetch_crop_health_state(orion, tenant, parcel, now=NOW)
+
+
 async def test_fetch_picks_max_observed_at_not_newest_id():
-    orion = _orion([
-        _entity("urn:ngsi-ld:CropHealthAssessment:p-1-20261022", index=0.1,
-                observed="2026-10-22T00:00:05Z"),
-        _entity("urn:ngsi-ld:CropHealthAssessment:p-1-20261021", index=0.9,
-                observed="2026-10-22T00:00:50Z"),
-    ])
-    st = await fetch_crop_health_state(orion, "tenant-a", PARCEL)
+    orion = _orion({
+        TODAY: _entity(TODAY, index=0.1, observed="2026-10-22T00:00:05Z"),
+        YDAY: _entity(YDAY, index=0.9, observed="2026-10-22T00:00:50Z"),
+    })
+    st = await _fetch(orion)
     assert st.stress_index == 0.9
     assert st.observed_at == datetime(2026, 10, 22, 0, 0, 50, tzinfo=timezone.utc)
-    kwargs = orion.query_entities.await_args.kwargs
-    assert kwargs["type"] == "CropHealthAssessment"
-    assert kwargs["options"] == "keyValues"
-    assert kwargs["limit"] == 10
-    assert kwargs["q"] == f'hasAgriParcel=="{PARCEL}"|refAgriParcel=="{PARCEL}"'
+    ids = [c.args[0] for c in orion.get_entity.await_args_list]
+    assert ids == [TODAY, YDAY]
+    assert all(c.kwargs["options"] == "keyValues" for c in orion.get_entity.await_args_list)
+
+
+async def test_fetch_today_missing_yesterday_fresh():
+    st = await _fetch(_orion({YDAY: _entity(YDAY, index=0.7)}))
+    assert st.stress_index == 0.7
+
+
+async def test_fetch_both_404_is_none_and_cached():
+    orion = _orion({})
+    assert await _fetch(orion) is None
+    assert await _fetch(orion) is None
+    assert orion.get_entity.await_count == 2  # one pass (today, yesterday), then cached
+
+
+async def test_fetch_non_404_error_warns_and_requeries_after_10s(monkeypatch, caplog):
+    clock = [1000.0]
+    monkeypatch.setattr(wsr, "_monotonic", lambda: clock[0])
+    orion = _orion({TODAY: _http_error(503)})
+    with caplog.at_level("WARNING"):
+        assert await _fetch(orion) is None
+    assert any("failed" in r.getMessage() for r in caplog.records)
+    n = orion.get_entity.await_count
+    clock[0] += 9
+    await _fetch(orion)
+    assert orion.get_entity.await_count == n
+    clock[0] += 2
+    await _fetch(orion)
+    assert orion.get_entity.await_count > n
+
+
+async def test_fetch_urn_without_prefix_no_fetch():
+    orion = _orion({})
+    assert await _fetch(orion, parcel="p-1") is None
+    assert await _fetch(orion, parcel="urn:ngsi-ld:AgriParcel:") is None
+    orion.get_entity.assert_not_awaited()
+
+
+async def test_fetch_mismatched_parcel_ignored():
+    e = _entity(TODAY)
+    e["hasAgriParcel"] = "urn:ngsi-ld:AgriParcel:other"
+    assert await _fetch(_orion({TODAY: e})) is None
+
+
+async def test_fetch_legacy_ref_attribute_and_wrapped_values():
+    e = _entity(TODAY)
+    del e["hasAgriParcel"]
+    e["refAgriParcel"] = {"object": PARCEL}
+    e["waterStressIndex"] = {"value": 0.6}
+    e["shadeFraction"] = {"value": 0.2}
+    e["waterStressFidelity"] = {"value": "iot_sensor"}
+    st = await _fetch(_orion({TODAY: e}))
+    assert (st.stress_index, st.shade_fraction, st.fidelity) == (0.6, 0.2, "iot_sensor")
 
 
 async def test_fetch_entities_without_observed_at_rank_last():
-    orion = _orion([
-        _entity("a", index=None, fidelity="unavailable", observed=None),
-        _entity("b", index=0.3, observed="2026-10-22T01:00:00Z"),
-    ])
-    st = await fetch_crop_health_state(orion, "tenant-a", PARCEL)
-    assert st.stress_index == 0.3
+    orion = _orion({
+        TODAY: _entity(TODAY, index=None, fidelity="unavailable", observed=None),
+        YDAY: _entity(YDAY, index=0.3, observed="2026-10-22T01:00:00Z"),
+    })
+    assert (await _fetch(orion)).stress_index == 0.3
 
 
 async def test_fetch_keeps_shade_when_fidelity_not_iot():
-    orion = _orion([_entity("a", fidelity="parcel_weather", shade=0.4)])
-    st = await fetch_crop_health_state(orion, "tenant-a", PARCEL)
+    st = await _fetch(_orion({TODAY: _entity(TODAY, fidelity="parcel_weather", shade=0.4)}))
     assert st.shade_fraction == 0.4
     assert st.fidelity == "parcel_weather"
 
 
 async def test_fetch_parses_typed_datetime_and_naive_as_utc():
-    e = _entity("a", observed={"@type": "DateTime", "@value": "2026-10-22T11:00:00Z"})
-    st = await fetch_crop_health_state(_orion([e]), "tenant-a", PARCEL)
-    assert st.observed_at == datetime(2026, 10, 22, 11, 0, tzinfo=timezone.utc)
-    wsr.reset_cache()
-    e = _entity("a", observed="2026-10-22T11:00:00")
-    st = await fetch_crop_health_state(_orion([e]), "tenant-a", PARCEL)
-    assert st.observed_at == datetime(2026, 10, 22, 11, 0, tzinfo=timezone.utc)
-    wsr.reset_cache()
-    e = _entity("a", observed="garbage")
-    st = await fetch_crop_health_state(_orion([e]), "tenant-a", PARCEL)
-    assert st.observed_at is None
+    for raw, want in (
+        ({"@type": "DateTime", "@value": "2026-10-22T11:00:00Z"}, datetime(2026, 10, 22, 11, tzinfo=timezone.utc)),
+        ("2026-10-22T11:00:00", datetime(2026, 10, 22, 11, tzinfo=timezone.utc)),
+        ("garbage", None),
+    ):
+        wsr.reset_cache()
+        st = await _fetch(_orion({TODAY: _entity(TODAY, observed=raw)}))
+        assert st.observed_at == want
 
 
 @pytest.mark.parametrize("bad", ["x", float("nan"), -0.1, 1.1, True, None])
 async def test_fetch_invalid_index_and_shade_become_none(bad):
-    e = _entity("a", index=bad, shade=bad)
-    st = await fetch_crop_health_state(_orion([e]), "tenant-a", PARCEL)
+    st = await _fetch(_orion({TODAY: _entity(TODAY, index=bad, shade=bad)}))
     assert st.stress_index is None
     assert st.shade_fraction is None
 
 
-async def test_fetch_empty_result_is_none():
-    assert await fetch_crop_health_state(_orion([]), "tenant-a", PARCEL) is None
-
-
 async def test_fetch_no_parcel_no_query():
-    orion = _orion([])
-    assert await fetch_crop_health_state(orion, "tenant-a", None) is None
-    orion.query_entities.assert_not_awaited()
-
-
-async def test_fetch_broker_error_returns_none(caplog):
-    orion = AsyncMock()
-    orion.query_entities = AsyncMock(side_effect=RuntimeError("boom"))
-    with caplog.at_level("WARNING"):
-        assert await fetch_crop_health_state(orion, "tenant-a", PARCEL) is None
-    assert any("boom" in r.getMessage() for r in caplog.records)
+    orion = _orion({})
+    assert await _fetch(orion, parcel=None) is None
+    orion.get_entity.assert_not_awaited()
 
 
 async def test_fetch_cache_hits_within_60s(monkeypatch):
     clock = [1000.0]
     monkeypatch.setattr(wsr, "_monotonic", lambda: clock[0])
-    orion = _orion([_entity("a")])
-    first = await fetch_crop_health_state(orion, "tenant-a", PARCEL)
+    orion = _orion({TODAY: _entity(TODAY)})
+    first = await _fetch(orion)
+    n = orion.get_entity.await_count
     clock[0] += 59
-    second = await fetch_crop_health_state(orion, "tenant-a", PARCEL)
-    assert first == second
-    assert orion.query_entities.await_count == 1
+    assert await _fetch(orion) == first
+    assert orion.get_entity.await_count == n
     clock[0] += 2
-    await fetch_crop_health_state(orion, "tenant-a", PARCEL)
-    assert orion.query_entities.await_count == 2
+    await _fetch(orion)
+    assert orion.get_entity.await_count > n
 
 
-async def test_fetch_caches_none_and_isolates_tenants():
-    orion = _orion([])
-    await fetch_crop_health_state(orion, "tenant-a", PARCEL)
-    await fetch_crop_health_state(orion, "tenant-a", PARCEL)
-    assert orion.query_entities.await_count == 1
-    await fetch_crop_health_state(orion, "tenant-b", PARCEL)
-    assert orion.query_entities.await_count == 2
+async def test_fetch_isolates_tenants():
+    orion = _orion({})
+    await _fetch(orion)
+    n = orion.get_entity.await_count
+    await _fetch(orion, tenant="tenant-b")
+    assert orion.get_entity.await_count == 2 * n
