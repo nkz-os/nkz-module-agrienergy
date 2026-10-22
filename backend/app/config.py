@@ -1,0 +1,90 @@
+"""
+AgriEnergy Orchestrator Backend - Configuration
+
+Environment-based configuration using pydantic-settings.
+"""
+
+from functools import lru_cache
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment variables."""
+    
+    # Application
+    app_name: str = "AgriEnergy Orchestrator"
+    app_version: str = "1.0.0"
+    debug: bool = False
+    log_level: str = "INFO"  # level for this module's own loggers; see app.logging_setup
+    
+    # API
+    api_prefix: str = "/api/agrienergy"
+    cors_origins: list[str] = []  # Set via CORS_ORIGINS env var; empty = deny all cross-origin
+
+    # Keycloak / JWT Authentication
+    keycloak_url: str = "https://auth.example.com/auth"  # Override via KEYCLOAK_URL
+    keycloak_realm: str = "nekazari"
+    jwt_audience: str = "account"
+    jwt_issuer: str = ""  # Auto-derived from keycloak_url + realm if empty
+    
+    # Service-to-service authentication
+    module_management_key: str = ""
+
+    # Context Broker (Orion-LD) base URL (env CONTEXT_BROKER_URL; legacy /ngsi-ld/v1
+    # suffix is stripped by the adapter). If empty, the SDK falls back to ORION_LD_URL
+    # or the in-cluster default http://orion-ld-service:1026 — REST I/O still works,
+    # but ensure_subscriptions() skips registration (see services/subscriptions.py).
+    context_broker_url: str = ""  # e.g. http://orion-ld:1026/ngsi-ld/v1
+
+    # NGSI-LD @context URL (set via CONTEXT_URL env var in K8s). Used in Link header
+    # when sending application/json to Orion-LD. ETSI NGSI-LD mandatory.
+    context_url: str = ""  # e.g. https://nkz.YOUR_DOMAIN/ngsi-ld-context.json
+
+    # /notify webhook URL announced in Orion-LD subscriptions (K8s env NOTIFICATION_URL).
+    notification_url: str = "http://agrienergy-api-service:8000/api/agrienergy/notify"
+    # How often installed tenants' subscriptions are re-converged (see services/subscriptions.py).
+    subscription_heal_minutes: int = 60
+
+    # N8N webhook for daily aggregation (Odoo/FinBridge). If empty, FinBridgeEmitter uses in-cluster default.
+    agrienergy_n8n_webhook_url: str = ""  # e.g. https://n8n.example.com/webhook/agrienergy-aggregation
+
+    # Internal cron / entity-manager callbacks (K8s Secret internal-service-secret)
+    internal_service_secret: str = ""
+
+    # Timeseries reader URL for daily Wh worker (no direct DB access)
+    timeseries_reader_url: str = "http://timeseries-reader-service:5000"
+
+    # MPC forecast (internal weather-api, X-Tenant-ID only)
+    weather_api_url: str = "http://weather-api-service:8000"
+
+    # Service account JWT for worker → timeseries-reader (CronJob secret)
+    worker_bearer_token: str = ""
+
+    # Database (optional - uncomment if using)
+    # database_url: str = ""
+    
+    # Redis (for caching/celery - optional)
+    # redis_url: str = ""
+    
+    @property
+    def jwt_issuer_url(self) -> str:
+        """Get the JWT issuer URL."""
+        if self.jwt_issuer:
+            return self.jwt_issuer
+        return f"{self.keycloak_url}/realms/{self.keycloak_realm}"
+    
+    @property
+    def jwks_url(self) -> str:
+        """Get the JWKS URL for token verification."""
+        return f"{self.jwt_issuer_url}/protocol/openid-connect/certs"
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = False
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """Get cached settings instance."""
+    return Settings()

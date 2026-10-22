@@ -1,0 +1,89 @@
+"""Ensure-on-use subscription registration (first SubscriptionRegistrar consumer)."""
+
+import pytest
+
+from tests.conftest import API, TENANT, make_parcel
+
+
+@pytest.fixture(autouse=True)
+def reset_memo():
+    from app.services import subscriptions
+    subscriptions._ensured.clear()
+    yield
+    subscriptions._ensured.clear()
+
+
+@pytest.fixture(autouse=True)
+def broker_configured(monkeypatch):
+    monkeypatch.setenv("CONTEXT_BROKER_URL", "http://orion-ld-service:1026/ngsi-ld/v1")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def test_get_parks_creates_subscriptions_once(client, orion_world):
+    client.get(f"{API}/parks")
+    assert len(orion_world.created_subscriptions) == 3
+    types = {s["entities"][0]["type"] for _, s in orion_world.created_subscriptions}
+    assert types == {
+        "WeatherObserved", "AgriEnergyTracker",
+        "PhotovoltaicInstallation"}
+    tenants = {t for t, _ in orion_world.created_subscriptions}
+    assert tenants == {TENANT}
+
+    # Second call: memoized, no new Orion writes
+    client.get(f"{API}/parks")
+    assert len(orion_world.created_subscriptions) == 3
+
+
+def test_existing_subscriptions_are_not_duplicated_after_a_restart(client, orion_world):
+    """A restarted pod must not add a second copy of a subscription it already has.
+
+    Since SDK 0.8.2 the guard is the deterministic subscription id: the re-created
+    POST collides with the existing one and the broker answers 409, which the
+    registrar counts as skipped. It is no longer a description comparison, so this
+    asserts the outcome — no new writes — rather than the old mechanism.
+    """
+    client.get(f"{API}/parks")
+    created_first = len(orion_world.created_subscriptions)
+    from app.services import subscriptions
+    subscriptions._ensured.clear()  # simulate pod restart
+    client.get(f"{API}/parks")
+    assert len(orion_world.created_subscriptions) == created_first
+
+
+def test_create_park_also_ensures(client, orion_world):
+    orion_world.add(make_parcel())
+    client.post(f"{API}/parks",
+                json={"name": "P", "ref_agri_parcel": "urn:ngsi-ld:AgriParcel:p1"})
+    assert len(orion_world.created_subscriptions) == 3
+
+
+def test_notification_url_in_subscription_body(client, orion_world):
+    client.get(f"{API}/parks")
+    _, sub = orion_world.created_subscriptions[0]
+    assert sub["notification"]["endpoint"]["uri"].endswith("/api/agrienergy/notify")
+
+
+def test_orion_down_endpoint_still_works(client, orion_world):
+    orion_world.fail_all = True
+    r = client.get(f"{API}/parks")
+    # parks query itself 502s (broker down) but the ensure must not be the cause
+    assert r.status_code in (200, 502)
+    # and nothing got memoized -> retried next request
+    from app.services import subscriptions
+    assert subscriptions._ensured == set()
+
+
+def test_pv_type_is_canonical_term_not_iri(client, orion_world):
+    """Regression: PV_TYPE must be the bare canonical term, not a full IRI."""
+    from app.services.subscriptions import PV_TYPE as PV_TYPE_PROD
+    from tests.conftest import PV_TYPE as PV_TYPE_TEST
+
+    # The canonical term should not contain "://" (which marks an IRI)
+    assert "://" not in PV_TYPE_PROD, (
+        f"PV_TYPE '{PV_TYPE_PROD}' is an IRI, not a canonical term"
+    )
+    # The test constant should match
+    assert PV_TYPE_TEST == PV_TYPE_PROD
