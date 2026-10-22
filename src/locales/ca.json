@@ -42,7 +42,10 @@
       "orientation": "Orientació",
       "powerDetails": "Detall de potència",
       "efficiency": "Eficiència",
-      "battery": "Bateria"
+      "battery": "Bateria",
+      "measuredShade": "Measured shade",
+      "shadeAgeMinutes": "{{n}} min ago",
+      "shadeAgeHours": "{{n}} h ago"
     },
     "manual": {
       "title": "Controls manuals",
@@ -92,7 +95,7 @@
     "signals": {
       "title": "Configurar senyals",
       "description": "Assigna una entitat i atribut de la plataforma a cada variable de l'algorisme.",
-      "biologyNote": "biology.stress_index s'omple automàticament des d'Intelligence en cada /notify (no es mapa aquí).",
+      "biologyNote": "biology.stress_index is filled from crop-health's water stress index, only when it is a fresh sensor-based value (not mapped here).",
       "save": "Desar mapatge",
       "saved": "Mapatge desat",
       "error": "Error en desar",

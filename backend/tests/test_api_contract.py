@@ -139,6 +139,63 @@ class TestTrackerStatus:
         assert "sensors.ghost" not in sensors  # missing entity skipped (fail-safe)
 
 
+class TestTrackerStatusCropShade:
+    URL = f"{API}/status"
+    TID = "urn:ngsi-ld:AgriEnergyTracker:t1"
+
+    @staticmethod
+    def _stub(monkeypatch, state):
+        from unittest.mock import AsyncMock
+        mock = AsyncMock(return_value=state)
+        monkeypatch.setattr("app.api.status.fetch_crop_health_state", mock)
+        return mock
+
+    def test_crop_shade_from_state(self, client, orion_world, monkeypatch):
+        from datetime import datetime, timezone
+        from app.services.water_stress_reader import CropHealthState
+        orion_world.add(make_tracker())
+        mock = self._stub(monkeypatch, CropHealthState(
+            stress_index=None, fidelity="regional_proxy",
+            observed_at=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
+            shade_fraction=0.35))
+        r = client.get(self.URL, params={"tracker_id": self.TID})
+        assert r.status_code == 200
+        shade = r.json()["crop_shade"]
+        assert shade["fraction"] == pytest.approx(0.35)
+        assert shade["observed_at"].startswith("2026-06-01T10:00:00")
+        assert mock.call_args.args[1] == TENANT
+        assert mock.call_args.args[2] == "urn:ngsi-ld:AgriParcel:p1"
+
+    def test_crop_shade_none_without_parcel(self, client, orion_world, monkeypatch):
+        t = make_tracker()
+        del t["hasAgriParcel"]
+        orion_world.add(t)
+        mock = self._stub(monkeypatch, None)
+        r = client.get(self.URL, params={"tracker_id": self.TID})
+        assert r.status_code == 200
+        assert r.json()["crop_shade"] is None
+        mock.assert_not_called()
+
+    def test_crop_shade_none_without_shade(self, client, orion_world, monkeypatch):
+        from datetime import datetime, timezone
+        from app.services.water_stress_reader import CropHealthState
+        orion_world.add(make_tracker())
+        self._stub(monkeypatch, CropHealthState(
+            0.4, "iot_sensor", datetime(2026, 6, 1, tzinfo=timezone.utc), None))
+        assert client.get(self.URL, params={"tracker_id": self.TID}).json()["crop_shade"] is None
+
+    def test_crop_shade_none_without_state(self, client, orion_world, monkeypatch):
+        orion_world.add(make_tracker())
+        self._stub(monkeypatch, None)
+        assert client.get(self.URL, params={"tracker_id": self.TID}).json()["crop_shade"] is None
+
+    def test_crop_shade_none_when_undated(self, client, orion_world, monkeypatch):
+        from app.services.water_stress_reader import CropHealthState
+        orion_world.add(make_tracker())
+        self._stub(monkeypatch, CropHealthState(None, None, None, 0.5))
+        assert client.get(self.URL, params={"tracker_id": self.TID}).json()["crop_shade"] is None
+
+
 class TestTrackerPatches:
     def test_algorithm_preset_resolved_and_appended(self, client, orion_world):
         orion_world.add(make_tracker())
