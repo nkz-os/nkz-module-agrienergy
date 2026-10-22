@@ -41,6 +41,7 @@ class CropHealthState:
     fidelity: str | None
     observed_at: datetime | None
     shade_fraction: float | None
+    shade_observed_at: datetime | None = None
 
 
 def reset_cache() -> None:
@@ -67,7 +68,7 @@ def _unit_interval(raw: Any) -> float | None:
 
 
 def _parse_datetime(raw: Any) -> datetime | None:
-    raw = _unwrap(raw)
+    raw = _unwrap(_unwrap(raw))  # Property -> {"@type": "DateTime", "@value": ...}
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:
@@ -86,6 +87,7 @@ def _to_state(entity: dict) -> CropHealthState:
         fidelity=fidelity if isinstance(fidelity, str) and fidelity else None,
         observed_at=_parse_datetime(entity.get("waterStressObservedAt")),
         shade_fraction=_unit_interval(entity.get("shadeFraction")),
+        shade_observed_at=_parse_datetime(entity.get("shadeObservedAt")),
     )
 
 

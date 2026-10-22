@@ -238,6 +238,24 @@ class TestCropHealthBiology:
         notify(anon_client, [weather_event()])
         assert self._tilt(orion_world) == 70.0
 
+    def test_evaluation_log_has_fidelity_and_age(self, anon_client, orion_world, caplog):
+        import logging
+        self._seed(orion_world)
+        orion_world.add(assessment(index=0.9, age_s=120))
+        with caplog.at_level(logging.INFO, logger="app.services.tracker_evaluator"):
+            notify(anon_client, [weather_event()])
+        msgs = [r.getMessage() for r in caplog.records if "biology parcel=" in r.getMessage()]
+        assert msgs and "fidelity=iot_sensor" in msgs[-1]
+        assert any(f"age_s={n}" in msgs[-1] for n in (120, 121, 122))
+
+    def test_evaluation_log_fidelity_age_none_without_state(self, anon_client, orion_world, caplog):
+        import logging
+        self._seed(orion_world)
+        with caplog.at_level(logging.INFO, logger="app.services.tracker_evaluator"):
+            notify(anon_client, [weather_event()])
+        msgs = [r.getMessage() for r in caplog.records if "biology parcel=" in r.getMessage()]
+        assert msgs and "fidelity=None" in msgs[-1] and "age_s=None" in msgs[-1]
+
     def test_no_crop_health_index_keeps_standby(self, anon_client, orion_world):
         self._seed(orion_world)
         notify(anon_client, [weather_event()])

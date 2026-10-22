@@ -184,9 +184,16 @@ async def evaluate_and_actuate_tracker(
     )
     if biology_parcel is None:
         reason = "no_parcel"
+    state_fidelity = state.fidelity if state is not None else None
+    state_age_s = (
+        round((now - state.observed_at).total_seconds())
+        if state is not None and state.observed_at is not None
+        else None
+    )
     logger.info(
-        "Tracker %s: biology parcel=%s stress_index=%s reason=%s",
+        "Tracker %s: biology parcel=%s stress_index=%s reason=%s fidelity=%s age_s=%s",
         tracker_id, biology_parcel, biology.get("stress_index"), reason,
+        state_fidelity, state_age_s,
     )
     context["biology"] = biology
 

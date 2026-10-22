@@ -70,7 +70,8 @@ def test_biology_never_contains_shade():
     assert "shade_fraction" not in out and "shadeFraction" not in out
 
 
-def _entity(eid, index=0.5, fidelity="iot_sensor", observed="2026-10-22T11:00:00Z", shade=None):
+def _entity(eid, index=0.5, fidelity="iot_sensor", observed="2026-10-22T11:00:00Z", shade=None,
+            shade_observed=None):
     e = {"id": eid, "type": "CropHealthAssessment", "hasAgriParcel": PARCEL}
     if index is not None:
         e["waterStressIndex"] = index
@@ -80,6 +81,8 @@ def _entity(eid, index=0.5, fidelity="iot_sensor", observed="2026-10-22T11:00:00
         e["waterStressObservedAt"] = observed
     if shade is not None:
         e["shadeFraction"] = shade
+    if shade_observed is not None:
+        e["shadeObservedAt"] = shade_observed
     return e
 
 
@@ -234,3 +237,20 @@ async def test_fetch_isolates_tenants():
     n = orion.get_entity.await_count
     await _fetch(orion, tenant="tenant-b")
     assert orion.get_entity.await_count == 2 * n
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", [
+    "2026-10-22T10:30:00Z",
+    {"type": "Property", "value": {"@type": "DateTime", "@value": "2026-10-22T10:30:00+00:00"}},
+])
+async def test_fetch_reads_shade_observed_at(raw):
+    st = await _fetch(_orion({TODAY: _entity(TODAY, shade=0.4, shade_observed=raw, observed=None)}))
+    assert st.shade_observed_at == datetime(2026, 10, 22, 10, 30, tzinfo=timezone.utc)
+    assert st.observed_at is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_shade_observed_at_absent_is_none():
+    st = await _fetch(_orion({TODAY: _entity(TODAY, shade=0.4)}))
+    assert st.shade_observed_at is None

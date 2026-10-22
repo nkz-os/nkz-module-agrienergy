@@ -156,8 +156,9 @@ class TestTrackerStatusCropShade:
         orion_world.add(make_tracker())
         mock = self._stub(monkeypatch, CropHealthState(
             stress_index=None, fidelity="regional_proxy",
-            observed_at=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc),
-            shade_fraction=0.35))
+            observed_at=datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc),
+            shade_fraction=0.35,
+            shade_observed_at=datetime(2026, 6, 1, 10, 0, tzinfo=timezone.utc)))
         r = client.get(self.URL, params={"tracker_id": self.TID})
         assert r.status_code == 200
         shade = r.json()["crop_shade"]
@@ -188,6 +189,16 @@ class TestTrackerStatusCropShade:
         orion_world.add(make_tracker())
         self._stub(monkeypatch, None)
         assert client.get(self.URL, params={"tracker_id": self.TID}).json()["crop_shade"] is None
+
+    def test_crop_shade_shown_without_stress_observed_at(self, client, orion_world, monkeypatch):
+        from datetime import datetime, timezone
+        from app.services.water_stress_reader import CropHealthState
+        orion_world.add(make_tracker())
+        self._stub(monkeypatch, CropHealthState(
+            None, None, None, 0.5, datetime(2026, 6, 1, 9, 0, tzinfo=timezone.utc)))
+        shade = client.get(self.URL, params={"tracker_id": self.TID}).json()["crop_shade"]
+        assert shade["fraction"] == pytest.approx(0.5)
+        assert shade["observed_at"].startswith("2026-06-01T09:00:00")
 
     def test_crop_shade_none_when_undated(self, client, orion_world, monkeypatch):
         from app.services.water_stress_reader import CropHealthState

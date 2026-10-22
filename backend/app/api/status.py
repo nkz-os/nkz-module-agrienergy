@@ -71,10 +71,10 @@ async def get_tracker_status(
     parcel_urn = tracker_parcel_urn(tracker)
     if parcel_urn:
         state = await fetch_crop_health_state(orion, tenant_id, parcel_urn)
-        if state and state.shade_fraction is not None and state.observed_at is not None:
+        if state and state.shade_fraction is not None and state.shade_observed_at is not None:
             crop_shade = CropShade(
                 fraction=state.shade_fraction,
-                observed_at=state.observed_at.astimezone(timezone.utc).isoformat(),
+                observed_at=state.shade_observed_at.astimezone(timezone.utc).isoformat(),
             )
 
     return TrackerStatusResponse(
