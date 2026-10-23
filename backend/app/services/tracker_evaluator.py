@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.engines.algorithm_engine import AlgorithmEngine
 from app.engines.elevation import ElevationService
 from app.engines.pv_engine import PVEngine, PVSpec
-from app.services.biology_cache import resolve_biology_context
 from app.services.device_command_client import DeviceCommandClient
-from app.services.intelligence_client import IntelligenceClient
 from app.services.mpc_context import enrich_mpc_context
-from app.services.ngsi_helpers import build_telemetry_for_intelligence
+from app.services.ngsi_helpers import tracker_parcel_urn
 from app.services.orion import get_entity_or_none, prop, resolve_device_ref
+from app.config import get_settings
+from app.services.water_stress_reader import fetch_crop_health_state, gate_biology
 from app.services.signal_resolver import (
     context_from_flat_sensors,
     forced_stow_orientation,
@@ -34,7 +34,6 @@ def angular_distance_deg(a: float, b: float) -> float:
 
 async def evaluate_and_actuate_tracker(
     orion,
-    intelligence_client,
     shadow_engine,
     tenant_id: str,
     tracker: dict,
@@ -177,20 +176,26 @@ async def evaluate_and_actuate_tracker(
             terrain_slope=parcel_slope,
             terrain_aspect=parcel_aspect,
         )
-    shadow_polygon_2d = list(shadow_current["polygon"]) if shadow_current.get("polygon") else []
-
-    telemetry = build_telemetry_for_intelligence(context)
-    biology = await resolve_biology_context(
-        tracker,
-        intelligence_client,
-        tenant_id=tenant_id,
-        tracker_id=tracker_id,
-        parcel_id=parcel_id,
-        timestamp=datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        shadow_polygon_2d=shadow_polygon_2d,
-        telemetry=telemetry,
+    now = datetime.now(timezone.utc)
+    biology_parcel = tracker_parcel_urn(tracker)
+    state = await fetch_crop_health_state(orion, tenant_id, biology_parcel, now=now)
+    biology, reason = gate_biology(
+        state, max_age_s=get_settings().water_stress_max_age_s, now=now
     )
-    context["biology"] = biology if biology else {}
+    if biology_parcel is None:
+        reason = "no_parcel"
+    state_fidelity = state.fidelity if state is not None else None
+    state_age_s = (
+        round((now - state.observed_at).total_seconds())
+        if state is not None and state.observed_at is not None
+        else None
+    )
+    logger.info(
+        "Tracker %s: biology parcel=%s stress_index=%s reason=%s fidelity=%s age_s=%s",
+        tracker_id, biology_parcel, biology.get("stress_index"), reason,
+        state_fidelity, state_age_s,
+    )
+    context["biology"] = biology
 
     if forced_stow:
         new_target_tilt, new_target_azimuth = forced_stow_orientation(p_azimuth)

@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # Internal cron / entity-manager callbacks (K8s Secret internal-service-secret)
     internal_service_secret: str = ""
 
+    # Max age (s) of crop-health waterStressObservedAt for agrienergy to act on it
+    water_stress_max_age_s: int = 3600
+
     # Timeseries reader URL for daily Wh worker (no direct DB access)
     timeseries_reader_url: str = "http://timeseries-reader-service:5000"
 

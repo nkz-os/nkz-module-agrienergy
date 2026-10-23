@@ -1,6 +1,6 @@
 # AgriEnergy Orchestrator — Nekazari Module
 
-Agrivoltaic module: PV simulation (pvlib), 2.5D shadow geometry (Shapely), JSON Logic algorithms, NGSI-LD closed-loop (notify → algorithm → targetTilt), and optional biological handshake (NKZ-Intelligence) and FinBridge (N8N) aggregation.
+Agrivoltaic module: PV simulation (pvlib), 2.5D shadow geometry (Shapely), JSON Logic algorithms, NGSI-LD closed-loop (notify → algorithm → targetTilt), and crop-health water stress input and FinBridge (N8N) aggregation.
 
 Built from the Nekazari module template: single IIFE bundle uploaded to MinIO, loaded at runtime by the host.
 
@@ -26,7 +26,7 @@ Built from the Nekazari module template: single IIFE bundle uploaded to MinIO, l
 | GET | `/api/agrienergy/docs` | — | OpenAPI Swagger UI |
 | GET | `/api/agrienergy/openapi.json` | — | OpenAPI schema |
 
-**Documentation**: [docs/REFERENCE.md](docs/REFERENCE.md) — algorithms (catalogue + how to add), simulation, Intelligence contract, Odoo/N8N. [docs/SIMULATE_PERIOD_SPEC.md](docs/SIMULATE_PERIOD_SPEC.md) — full contract for POST /simulate-period.
+**Documentation**: [docs/REFERENCE.md](docs/REFERENCE.md) — algorithms (catalogue + how to add), simulation, biology (crop-health) contract, Odoo/N8N. [docs/SIMULATE_PERIOD_SPEC.md](docs/SIMULATE_PERIOD_SPEC.md) — full contract for POST /simulate-period.
 
 **Signal configuration**: Map sensors (NGSI-LD entities) per tracker via "Configure signals" UI: GET `/status`, GET `/signal-sources`, PATCH signal-mapping. See REFERENCE.md.
 
@@ -83,7 +83,7 @@ Analogy: a smart thermostat that skips a heating cycle when the comfort gain wou
 | `WEATHER_API_URL` | internal weather service | Short-term solar forecast for MPC |
 | `ACTUATOR_WATTS_PER_DEGREE` | `2.5` | Motor energy proxy for move-cost estimate |
 
-Biology scalars (`biology.stress_index`, etc.) are read from the tracker’s `biologyCache` when fresh; otherwise the 200 ms Intelligence handshake applies. MPC presets compose with biology rules (e.g. `default:hierarchical_failsafe`) via custom JSON Logic.
+Biology scalars (`biology.stress_index`, etc.) come from the parcel's crop-health water stress, only when it is a fresh `iot_sensor` index; otherwise they are empty. MPC presets compose with biology rules (e.g. `default:hierarchical_failsafe`) via custom JSON Logic.
 
 ---
 

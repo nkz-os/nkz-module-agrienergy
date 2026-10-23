@@ -90,6 +90,12 @@ class SignalMappingItem(BaseModel):
     )
 
 
+class CropShade(BaseModel):
+    """Measured under-panel shade (display only; never drives actuation)."""
+    fraction: float
+    observed_at: str  # ISO UTC
+
+
 class TrackerStatusResponse(BaseModel):
     """Response for GET /status: instant values for frontend panel and Cesium."""
     tracker_id: str
@@ -101,6 +107,7 @@ class TrackerStatusResponse(BaseModel):
     active_algorithm_id: Optional[str] = None  # preset id when activeAlgorithm is {"id": "..."}
     control_status: Optional[str] = None  # ok | degraded (from tracker or live signal faults)
     signal_faults: List[str] = Field(default_factory=list)  # required contextKeys currently missing
+    crop_shade: Optional[CropShade] = None  # measured by crop-health from PAR sensors
     timestamp: str
 
 

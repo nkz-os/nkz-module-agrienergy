@@ -42,7 +42,10 @@
       "orientation": "Orientación",
       "powerDetails": "Detalle de potencia",
       "efficiency": "Eficiencia",
-      "battery": "Batería"
+      "battery": "Batería",
+      "measuredShade": "Sombra medida",
+      "shadeAgeMinutes": "hace {{n}} min",
+      "shadeAgeHours": "hace {{n}} h"
     },
     "manual": {
       "title": "Controles manuales",
@@ -92,7 +95,7 @@
     "signals": {
       "title": "Configurar señales",
       "description": "Asigna una entidad y atributo de la plataforma a cada variable del algoritmo.",
-      "biologyNote": "biology.stress_index se rellena automáticamente desde Intelligence en cada /notify (no se mapea aquí).",
+      "biologyNote": "biology.stress_index se rellena desde el índice de estrés hídrico de crop-health, solo cuando es un valor fresco basado en sensores (no se mapea aquí).",
       "save": "Guardar mapeo",
       "saved": "Mapeo guardado",
       "error": "Error al guardar",

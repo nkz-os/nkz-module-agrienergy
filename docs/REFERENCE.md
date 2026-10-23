@@ -24,7 +24,7 @@ Single reference for algorithms, simulation, and integrations. The repo is publi
 
 **MPC context** (enriched on `/notify` when not in forced stow): `forecast.*` (1 h GHI/DNI/DHI), `actuator.*` (move cost Wh), `economics.*` (`net_gain_wh_1h`). See README § Predictive control (MPC).
 
-**Adding a new algorithm**: (1) Ensure data is in context (signalMapping for sensors; Intelligence for biology.*). (2) Write JSON Logic with `var` + default and return `{ "tilt", "azimuth" }`. (3) Add an entry to `AlgorithmEngine.builtin_algorithms()` in `backend/app/engines/algorithm_engine.py`.
+**Adding a new algorithm**: (1) Ensure data is in context (signalMapping for sensors; crop-health for biology.*). (2) Write JSON Logic with `var` + default and return `{ "tilt", "azimuth" }`. (3) Add an entry to `AlgorithmEngine.builtin_algorithms()` in `backend/app/engines/algorithm_engine.py`.
 
 **Tracker attribute** `rotationAxis` (optional): `north_south` | `east_west` | `two_axis`. When set, single-axis trackers keep current azimuth; only tilt is applied from the rule.
 
@@ -37,14 +37,11 @@ Single reference for algorithms, simulation, and integrations. The repo is publi
 
 ---
 
-## 3. Intelligence (scalar bundle)
+## 3. Biology (crop-health water stress)
 
-AgriEnergy calls **POST /api/intelligence/evaluate_status** in the /notify flow (after building context and shadow). Request: tracker_id, parcel_id, timestamp, shadow_polygon_2d, telemetry. Response: scalar bundle (e.g. stress_index) → injected as `context["biology"]`.
+In the /notify flow AgriEnergy reads the parcel's `CropHealthAssessment` from Orion-LD (the tracker's `hasAgriParcel` / `refAgriParcel`). `context["biology"] = {"stress_index": x}` only when `waterStressFidelity` is `iot_sensor`, `waterStressObservedAt` is at most `WATER_STRESS_MAX_AGE_S` old (default 3600) and the index is in [0, 1].
 
-- **Timeout**: 200 ms. Intelligence must respond via fast read (e.g. Redis cache), not on-demand LSTM in the request.
-- **Fail-safe**: On timeout/5xx, AgriEnergy sets `context["biology"] = {}`. Rules use `{"var": ["biology.stress_index", 0]}` for defaults.
-
-The Intelligence module (evaluate_status, worker, Redis) is implemented and maintained by a separate team; this contract is the interface.
+- **Fail-safe**: in every other case (no parcel, no state, other fidelity, stale) `context["biology"] = {}`. Rules use `{"var": ["biology.stress_index", 0]}` for defaults.
 
 ---
 
@@ -55,5 +52,3 @@ See **[ODOO_N8N_AGRIENERGY.md](ODOO_N8N_AGRIENERGY.md)** for the full webhook co
 **FinBridgeEmitter** POSTs to N8N with `tenant_id`, `tracker_id`, `date`, `generation_wh`, `consumption_wh`, `surplus_wh`, `module`. URL: `AGRIENERGY_N8N_WEBHOOK_URL`.
 
 **Daily job (Phase 8.2):** K8s CronJob `agrienergy-daily-aggregation` runs trapezoidal integration over `measuredPowerW` / `powerW` via timeseries-reader, emits FinBridge, writes `dailyGenerationWh` on the tracker in Orion-LD.
-
-**Intelligence push (P3-2):** Owned by the Intelligence module (pre-computed Redis bundle). AgriEnergy keeps the 200 ms read-only contract in `/notify`; no change required here.

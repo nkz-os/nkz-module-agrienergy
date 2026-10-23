@@ -29,6 +29,7 @@ interface TrackerStatus {
   active_algorithm_id?: string | null;
   control_status?: string | null;
   signal_faults?: string[];
+  crop_shade?: { fraction: number; observed_at: string } | null;
   timestamp: string;
 }
 
@@ -105,6 +106,15 @@ function getSensorColor(key: string, value: number): string {
     return 'text-gray-900 dark:text-gray-100';
   }
   return 'text-gray-900 dark:text-gray-100';
+}
+
+/** Relative age of a shade measurement (minutes under 2 h, otherwise hours) */
+function formatShadeAge(observedAt: string, t: (key: string, opts?: any) => string): string {
+  const ms = Date.now() - new Date(observedAt).getTime();
+  if (!Number.isFinite(ms)) return '';
+  const minutes = Math.max(0, Math.round(ms / 60_000));
+  if (minutes < 120) return t('agrienergy.dashboard.shadeAgeMinutes', { n: minutes });
+  return t('agrienergy.dashboard.shadeAgeHours', { n: Math.round(minutes / 60) });
 }
 
 export const TrackerDashboard: React.FC<TrackerDashboardProps> = ({ status }) => {
@@ -314,6 +324,18 @@ export const TrackerDashboard: React.FC<TrackerDashboardProps> = ({ status }) =>
         <p className="text-xs text-gray-500 dark:text-gray-400 italic px-1">
           {t('agrienergy.signals.configureHint')}
         </p>
+      )}
+
+      {status.crop_shade && (
+        <div className="flex items-center justify-between px-1 text-xs">
+          <span className="text-gray-500 dark:text-gray-400">{t('agrienergy.dashboard.measuredShade')}</span>
+          <span className="font-mono font-semibold text-gray-900 dark:text-gray-100">
+            {(status.crop_shade.fraction * 100).toFixed(0)}%
+            <span className="ml-1 font-normal text-gray-400 dark:text-gray-500">
+              {formatShadeAge(status.crop_shade.observed_at, t)}
+            </span>
+          </span>
+        </div>
       )}
 
       {/* Last update */}

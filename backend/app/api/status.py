@@ -1,13 +1,15 @@
 """Tracker status, signal sources, and algorithm presets."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import orion_dep
+from app.middleware import get_tenant_id
 from app.engines.algorithm_engine import AlgorithmEngine
 from app.models import (
+    CropShade,
     OrientationStatus,
     PowerStatus,
     SignalMappingItem,
@@ -21,8 +23,10 @@ from app.services.ngsi_helpers import (
     get_control_status_from_tracker,
     get_float_attr,
     numeric_attributes_from_entity,
+    tracker_parcel_urn,
 )
 from app.services.orion import get_entity_or_none
+from app.services.water_stress_reader import fetch_crop_health_state
 from app.services.signal_resolver import parse_signal_mapping, resolve_signal_mapping
 
 router = APIRouter(tags=["AgriEnergy Orchestrator"])
@@ -34,6 +38,7 @@ DEFAULT_SIGNAL_ENTITY_TYPES = ("WeatherObserved", "AgriSensor")
 async def get_tracker_status(
     tracker_id: str = Query(..., description="AgriEnergyTracker entity ID"),
     orion=Depends(orion_dep),
+    tenant_id: str = Depends(get_tenant_id),
 ):
     """Instant values for a tracker: orientation, power, mapped sensors."""
     try:
@@ -62,6 +67,16 @@ async def get_tracker_status(
     if isinstance(algo_attr, dict) and set(algo_attr.keys()) <= {"id"} and algo_attr.get("id"):
         active_algorithm_id = algo_attr["id"]
 
+    crop_shade = None
+    parcel_urn = tracker_parcel_urn(tracker)
+    if parcel_urn:
+        state = await fetch_crop_health_state(orion, tenant_id, parcel_urn)
+        if state and state.shade_fraction is not None and state.shade_observed_at is not None:
+            crop_shade = CropShade(
+                fraction=state.shade_fraction,
+                observed_at=state.shade_observed_at.astimezone(timezone.utc).isoformat(),
+            )
+
     return TrackerStatusResponse(
         tracker_id=tracker_id,
         orientation=OrientationStatus(tilt=tilt, azimuth=azimuth),
@@ -72,6 +87,7 @@ async def get_tracker_status(
         active_algorithm_id=active_algorithm_id,
         control_status=control_status,
         signal_faults=resolution.missing_required,
+        crop_shade=crop_shade,
         timestamp=datetime.utcnow().isoformat() + "Z",
     )
 
