@@ -39,7 +39,7 @@ Single reference for algorithms, simulation, and integrations. The repo is publi
 
 ## 3. Biology (crop-health water stress)
 
-In the /notify flow AgriEnergy reads the parcel's `CropHealthAssessment` from Orion-LD (the tracker's `hasAgriParcel` / `refAgriParcel`). `context["biology"] = {"stress_index": x}` only when `waterStressFidelity` is `iot_sensor`, `waterStressObservedAt` is at most `WATER_STRESS_MAX_AGE_S` old (default 3600) and the index is in [0, 1].
+In the /notify flow AgriEnergy reads the parcel's `CropHealthAssessment` from Orion-LD (the tracker's `hasAgriParcel` / `refAgriParcel`). `context["biology"] = {"stress_index": x}` only when `underPanelWaterStressFidelity` is `iot_sensor`, `underPanelWaterStressObservedAt` is at most `WATER_STRESS_MAX_AGE_S` old (default 3600) and the index is in [0, 1].
 
 - **Fail-safe**: in every other case (no parcel, no state, other fidelity, stale) `context["biology"] = {}`. Rules use `{"var": ["biology.stress_index", 0]}` for defaults.
 
