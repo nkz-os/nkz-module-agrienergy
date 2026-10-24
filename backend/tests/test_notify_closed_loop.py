@@ -215,9 +215,9 @@ def assessment(parcel=PARCEL, *, index=0.9, fidelity="iot_sensor", age_s=60):
         "id": f"urn:ngsi-ld:CropHealthAssessment:{parcel.rsplit(':', 1)[1]}-{now:%Y%m%d}",
         "type": "CropHealthAssessment",
         "hasAgriParcel": {"type": "Relationship", "object": parcel},
-        "waterStressIndex": {"type": "Property", "value": index},
-        "waterStressFidelity": {"type": "Property", "value": fidelity},
-        "waterStressObservedAt": {
+        "underPanelWaterStressIndex": {"type": "Property", "value": index},
+        "underPanelWaterStressFidelity": {"type": "Property", "value": fidelity},
+        "underPanelWaterStressObservedAt": {
             "type": "Property", "value": observed.strftime("%Y-%m-%dT%H:%M:%SZ")},
     }
 

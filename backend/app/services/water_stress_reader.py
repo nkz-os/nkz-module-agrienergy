@@ -1,7 +1,9 @@
-"""Crop-health state reader: water stress index, its fidelity and shade fraction.
+"""Crop-health state reader: under-panel water stress index, fidelity and shade fraction.
 
 Reads the parcel-level ``CropHealthAssessment`` published by crop-health from
-Orion-LD. Agrienergy acts only on a fresh ``iot_sensor`` index; shade is
+Orion-LD. Agrienergy reads the UNDER-PANEL index (``underPanelWaterStress*``)
+only; the ``waterStress*`` attributes are the open field and are never used as
+a fallback. It acts only on a fresh ``iot_sensor`` index; shade is
 informational and never enters ``biology``.
 """
 
@@ -81,11 +83,11 @@ def _parse_datetime(raw: Any) -> datetime | None:
 
 
 def _to_state(entity: dict) -> CropHealthState:
-    fidelity = _unwrap(entity.get("waterStressFidelity"))
+    fidelity = _unwrap(entity.get("underPanelWaterStressFidelity"))
     return CropHealthState(
-        stress_index=_unit_interval(entity.get("waterStressIndex")),
+        stress_index=_unit_interval(entity.get("underPanelWaterStressIndex")),
         fidelity=fidelity if isinstance(fidelity, str) and fidelity else None,
-        observed_at=_parse_datetime(entity.get("waterStressObservedAt")),
+        observed_at=_parse_datetime(entity.get("underPanelWaterStressObservedAt")),
         shade_fraction=_unit_interval(entity.get("shadeFraction")),
         shade_observed_at=_parse_datetime(entity.get("shadeObservedAt")),
     )
@@ -99,7 +101,7 @@ def _belongs_to(entity: dict, parcel_urn: str) -> bool:
 
 
 def _pick_freshest(entities: list[dict], parcel_urn: str) -> CropHealthState | None:
-    """Max ``waterStressObservedAt``; entities without it rank last.
+    """Max ``underPanelWaterStressObservedAt``; entities without it rank last.
 
     The newest id is not necessarily the freshest observation (day rollover).
     Entities not linked to ``parcel_urn`` are ignored.

@@ -74,11 +74,11 @@ def _entity(eid, index=0.5, fidelity="iot_sensor", observed="2026-10-22T11:00:00
             shade_observed=None):
     e = {"id": eid, "type": "CropHealthAssessment", "hasAgriParcel": PARCEL}
     if index is not None:
-        e["waterStressIndex"] = index
+        e["underPanelWaterStressIndex"] = index
     if fidelity is not None:
-        e["waterStressFidelity"] = fidelity
+        e["underPanelWaterStressFidelity"] = fidelity
     if observed is not None:
-        e["waterStressObservedAt"] = observed
+        e["underPanelWaterStressObservedAt"] = observed
     if shade is not None:
         e["shadeFraction"] = shade
     if shade_observed is not None:
@@ -172,9 +172,9 @@ async def test_fetch_legacy_ref_attribute_and_wrapped_values():
     e = _entity(TODAY)
     del e["hasAgriParcel"]
     e["refAgriParcel"] = {"object": PARCEL}
-    e["waterStressIndex"] = {"value": 0.6}
+    e["underPanelWaterStressIndex"] = {"value": 0.6}
     e["shadeFraction"] = {"value": 0.2}
-    e["waterStressFidelity"] = {"value": "iot_sensor"}
+    e["underPanelWaterStressFidelity"] = {"value": "iot_sensor"}
     st = await _fetch(_orion({TODAY: e}))
     assert (st.stress_index, st.shade_fraction, st.fidelity) == (0.6, 0.2, "iot_sensor")
 
@@ -254,3 +254,12 @@ async def test_fetch_reads_shade_observed_at(raw):
 async def test_fetch_shade_observed_at_absent_is_none():
     st = await _fetch(_orion({TODAY: _entity(TODAY, shade=0.4)}))
     assert st.shade_observed_at is None
+
+
+async def test_open_field_only_entity_gives_no_action():
+    e = {"id": TODAY, "type": "CropHealthAssessment", "hasAgriParcel": PARCEL,
+         "waterStressIndex": 0.8, "waterStressFidelity": "iot_sensor",
+         "waterStressObservedAt": "2026-10-22T11:00:00Z"}
+    st = await _fetch(_orion({TODAY: e}))
+    assert st.stress_index is None
+    assert biology_from_state(st, max_age_s=3600, now=NOW) == {}
