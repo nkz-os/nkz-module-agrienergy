@@ -2,7 +2,10 @@
 
 import pytest
 
-from tests.conftest import API, TENANT, make_parcel, make_tracker
+from nkz_platform_sdk import auth as sdk_auth
+
+from app.middleware import ensure_signature_enforced
+from tests.conftest import API, TENANT, identity, make_parcel, make_tracker
 
 PROTECTED_GETS = [
     f"{API}/status?tracker_id=urn:ngsi-ld:AgriEnergyTracker:t1",
@@ -29,7 +32,7 @@ class TestAuthMatrix:
     def test_admin_stats_200_for_tenant_admin(self, admin_client):
         r = admin_client.get(f"{API}/admin/stats")
         assert r.status_code == 200
-        assert r.json()["user"] == "tester@example.com"
+        assert r.json()["user"] == "user-1"
 
     def test_simulate_needs_no_token(self, anon_client):
         # Pinned: /simulate is tenant-agnostic compute; public access is fronted
@@ -47,15 +50,29 @@ class TestAuthMatrix:
         assert anon_client.post(f"{API}/simulate", json=payload).status_code == 200
 
 
-class TestTenantPriority:
-    def test_x_tenant_id_beats_claim(self, client, orion_world):
-        client.get(f"{API}/parks", headers={"X-Tenant-ID": "other-tenant"})
+class TestGatewayIdentity:
+    def test_tenant_comes_from_the_signed_gateway_identity(self, client, orion_world):
+        r = client.get(f"{API}/parks", headers=identity(["Farmer"], tenant="other-tenant"))
+        assert r.status_code == 200
         assert "other-tenant" in orion_world.tenants_seen
 
-    def test_claim_used_without_headers(self, client, orion_world):
-        # client fixture sets X-Tenant-ID; blank it so the JWT claim is used
-        client.get(f"{API}/parks", headers={"X-Tenant-ID": ""})
-        assert TENANT in orion_world.tenants_seen
+    def test_tenant_header_without_matching_signature_is_401(self, client, orion_world):
+        r = client.get(f"{API}/parks", headers={"X-Tenant-ID": "other-tenant"})
+        assert r.status_code == 401
+        assert "other-tenant" not in orion_world.tenants_seen
+
+    def test_startup_refuses_without_signature_check(self, monkeypatch):
+        monkeypatch.setattr(sdk_auth, "REQUIRE_HMAC", False)
+        with pytest.raises(RuntimeError):
+            ensure_signature_enforced()
+
+    def test_no_tenant_header_is_401(self, client):
+        assert client.get(f"{API}/parks", headers={"X-Tenant-ID": ""}).status_code == 401
+
+    def test_bearer_token_alone_is_not_an_identity(self, anon_client):
+        # The gateway, not the module, validates JWTs.
+        r = anon_client.get(f"{API}/parcels", headers={"Authorization": "Bearer x.y.z"})
+        assert r.status_code == 401
 
 
 class TestAlgorithmsEndpoint:
