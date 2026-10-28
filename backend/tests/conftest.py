@@ -9,10 +9,11 @@ is hyphen-canonical and any tenant normalization regression must fail loudly.
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from nkz_platform_sdk import auth as sdk_auth
+from nkz_platform_sdk.crypto import generate_hmac_signature
 
 from app.main import app as fastapi_app
 from app.services import water_stress_reader
-from app.middleware import TokenPayload, get_current_user
 
 API = "/api/agrienergy"
 TENANT = "demo-coop"
@@ -233,16 +234,26 @@ CONST_RULE = {
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
-def _token(roles: list[str]) -> TokenPayload:
-    return TokenPayload(
-        {
-            "sub": "user-1",
-            "email": "tester@example.com",
-            "preferred_username": "tester",
-            "tenant_id": TENANT,
-            "realm_access": {"roles": roles},
-        }
-    )
+HMAC_SECRET = "test-hmac-secret"
+USER_TOKEN = "user-jwt"
+
+
+def identity(roles: list[str], tenant: str = TENANT) -> dict:
+    """Headers the api-gateway forwards for a signed-in user, signed as the gateway signs them."""
+    return {
+        "Authorization": f"Bearer {USER_TOKEN}",
+        "X-Tenant-ID": tenant,
+        "X-User-ID": "user-1",
+        "X-User-Roles": ",".join(roles),
+        "X-Auth-Signature": generate_hmac_signature(HMAC_SECRET, USER_TOKEN, tenant),
+    }
+
+
+@pytest.fixture(autouse=True)
+def gateway_signatures_enforced(monkeypatch):
+    """Production mode: the service refuses to start without signature checks."""
+    monkeypatch.setattr(sdk_auth, "REQUIRE_HMAC", True)
+    monkeypatch.setattr(sdk_auth, "HMAC_SECRET", HMAC_SECRET)
 
 
 @pytest.fixture
@@ -285,24 +296,20 @@ def orion_world(monkeypatch):
 @pytest.fixture
 def client(orion_world):
     """Authenticated TestClient (regular user, tenant from X-Tenant-ID)."""
-    fastapi_app.dependency_overrides[get_current_user] = lambda: _token(["User"])
     with TestClient(fastapi_app) as c:
-        c.headers.update({"X-Tenant-ID": TENANT})
+        c.headers.update(identity(["Farmer"]))
         yield c
-    fastapi_app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def admin_client(orion_world):
-    fastapi_app.dependency_overrides[get_current_user] = lambda: _token(["TenantAdmin"])
     with TestClient(fastapi_app) as c:
-        c.headers.update({"X-Tenant-ID": TENANT})
+        c.headers.update(identity(["TenantAdmin"]))
         yield c
-    fastapi_app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def anon_client(orion_world):
-    """No auth override, no token: protected routes must 401."""
+    """No gateway identity: protected routes must 401."""
     with TestClient(fastapi_app) as c:
         yield c
